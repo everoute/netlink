@@ -85,6 +85,10 @@ func ConntrackDeleteFilters(table ConntrackTableType, family InetFamily, filters
 	return pkgHandle.ConntrackDeleteFilters(table, family, filters...)
 }
 
+func ConntrackTableListStream(table ConntrackTableType, family InetFamily, handle chan *ConntrackFlow) error {
+	return pkgHandle.ConntrackTableListStream(table, family, handle)
+}
+
 // ConntrackTableList returns the flow list of a table of a specific family using the netlink handle passed
 // conntrack -L [table] [options]          List conntrack or expectation table
 //
@@ -193,6 +197,17 @@ func (h *Handle) ConntrackDeleteFilters(table ConntrackTableType, family InetFam
 		finalErr = errors.Join(finalErr, fmt.Errorf("failed to delete %d conntrack flows with %d filters", totalFilterErrors, len(filters)))
 	}
 	return matched, finalErr
+}
+
+func (h *Handle) ConntrackTableListStream(table ConntrackTableType, family InetFamily, handle chan *ConntrackFlow) error {
+	req := h.newConntrackRequest(table, family, nl.IPCTNL_MSG_CT_GET, unix.NLM_F_DUMP)
+
+	err := req.ExecuteIter(unix.NETLINK_NETFILTER, 0, func(dataRaw []byte) bool {
+		handle <- parseRawData(dataRaw)
+		return true
+	})
+
+	return err
 }
 
 func (h *Handle) newConntrackRequest(table ConntrackTableType, family InetFamily, operation, flags int) *nl.NetlinkRequest {
