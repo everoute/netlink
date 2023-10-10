@@ -4,9 +4,13 @@
 package netlink
 
 import (
+	"math/rand"
 	"net"
+	"reflect"
 	"testing"
+	"time"
 
+	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
 )
 
@@ -421,4 +425,172 @@ func ruleEquals(a, b Rule) bool {
 		a.Invert == b.Invert &&
 		a.Tos == b.Tos &&
 		a.IPProto == b.IPProto
+}
+
+// expectRuleUpdate returns whether the expected updated is received within one minute.
+func expectRuleUpdate(ch <-chan RuleUpdate, t uint16, rule Rule) bool {
+	for {
+		timeout := time.After(time.Minute)
+		select {
+		case update := <-ch:
+			if update.Type == t && reflect.DeepEqual(update.Rule, rule) {
+				return true
+			}
+		case <-timeout:
+			return false
+		}
+	}
+}
+
+func TestRuleSubscribe(t *testing.T) {
+	tearDown := setUpNetlinkTest(t)
+	defer tearDown()
+
+	ch := make(chan RuleUpdate)
+	done := make(chan struct{})
+	defer close(done)
+	if err := RuleSubscribe(ch, done); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := NewRule()
+	rule.Table = rand.Intn(1000) + 10000
+	rule.Priority = rand.Intn(1000) + 10000
+	rule.IifName = "interface_name"
+
+	if err := RuleAdd(rule); err != nil {
+		t.Fatal(err)
+	}
+	if !expectRuleUpdate(ch, unix.RTM_NEWRULE, *rule) {
+		t.Fatal("Add update not received as expected")
+	}
+
+	if err := RuleDel(rule); err != nil {
+		t.Fatal(err)
+	}
+	if !expectRuleUpdate(ch, unix.RTM_DELRULE, *rule) {
+		t.Fatal("Del update not received as expected")
+	}
+}
+
+func TestRuleSubscribeWithOptions(t *testing.T) {
+	tearDown := setUpNetlinkTest(t)
+	defer tearDown()
+
+	ch := make(chan RuleUpdate)
+	done := make(chan struct{})
+	defer close(done)
+	if err := RuleSubscribeWithOptions(ch, done, RuleSubscribeOptions{
+		ErrorCallback: func(err error) { t.Fatalf("unexpect error: %s", err) },
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := NewRule()
+	rule.Table = rand.Intn(1000) + 10000
+	rule.Priority = rand.Intn(1000) + 10000
+	rule.IifName = "interface_name"
+
+	if err := RuleAdd(rule); err != nil {
+		t.Fatal(err)
+	}
+	if !expectRuleUpdate(ch, unix.RTM_NEWRULE, *rule) {
+		t.Fatal("Add update not received as expected")
+	}
+
+	if err := RuleDel(rule); err != nil {
+		t.Fatal(err)
+	}
+	if !expectRuleUpdate(ch, unix.RTM_DELRULE, *rule) {
+		t.Fatal("Del update not received as expected")
+	}
+}
+
+func TestRuleSubscribeAt(t *testing.T) {
+	skipUnlessRoot(t)
+
+	// Create an handle on a custom netns
+	newNs, err := netns.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer newNs.Close()
+
+	nh, err := NewHandleAt(newNs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nh.Close()
+
+	ch := make(chan RuleUpdate)
+	done := make(chan struct{})
+	defer close(done)
+	if err := RuleSubscribeAt(newNs, ch, done); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := NewRule()
+	rule.Table = rand.Intn(1000) + 10000
+	rule.Priority = rand.Intn(1000) + 10000
+	rule.IifName = "interface_name"
+
+	if err := nh.RuleAdd(rule); err != nil {
+		t.Fatal(err)
+	}
+	if !expectRuleUpdate(ch, unix.RTM_NEWRULE, *rule) {
+		t.Fatal("Add update not received as expected")
+	}
+
+	if err := nh.RuleDel(rule); err != nil {
+		t.Fatal(err)
+	}
+	if !expectRuleUpdate(ch, unix.RTM_DELRULE, *rule) {
+		t.Fatal("Del update not received as expected")
+	}
+}
+
+func TestRuleSubscribeListExisting(t *testing.T) {
+	skipUnlessRoot(t)
+
+	// Create an handle on a custom netns
+	newNs, err := netns.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer newNs.Close()
+
+	nh, err := NewHandleAt(newNs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nh.Close()
+
+	rule := NewRule()
+	rule.Table = rand.Intn(1000) + 10000
+	rule.Priority = rand.Intn(1000) + 10000
+	rule.IifName = "interface_name"
+
+	if err := nh.RuleAdd(rule); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := make(chan RuleUpdate)
+	done := make(chan struct{})
+	defer close(done)
+	if err := RuleSubscribeWithOptions(ch, done, RuleSubscribeOptions{
+		Namespace:    &newNs,
+		ListExisting: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !expectRuleUpdate(ch, unix.RTM_NEWRULE, *rule) {
+		t.Fatal("Add update not received as expected")
+	}
+	if err := nh.RuleDel(rule); err != nil {
+		t.Fatal(err)
+	}
+	if !expectRuleUpdate(ch, unix.RTM_DELRULE, *rule) {
+		t.Fatal("Del update not received as expected")
+	}
 }
