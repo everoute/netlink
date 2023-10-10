@@ -44,6 +44,12 @@ func (r Rule) String() string {
 		r.Priority, from, to, r.Table)
 }
 
+// RuleUpdate is sent when a route changes - type is RTM_NEWRULE or RTM_DELRULE
+type RuleUpdate struct {
+	Type uint16
+	Rule
+}
+
 // NewRule return empty rules.
 func NewRule() *Rule {
 	return &Rule{
