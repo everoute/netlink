@@ -271,6 +271,10 @@ func (h *Handle) RouteReplace(route *Route) error {
 	return ErrNotImplemented
 }
 
+func (h *Handle) RouteChange(route *Route) error {
+	return ErrNotImplemented
+}
+
 func (h *Handle) RuleAdd(rule *Rule) error {
 	return ErrNotImplemented
 }
