@@ -212,6 +212,10 @@ func RouteReplace(route *Route) error {
 	return ErrNotImplemented
 }
 
+func RouteChange(route *Route) error {
+	return ErrNotImplemented
+}
+
 func XfrmPolicyAdd(policy *XfrmPolicy) error {
 	return ErrNotImplemented
 }

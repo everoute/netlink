@@ -702,6 +702,21 @@ func (h *Handle) RouteReplace(route *Route) error {
 	return err
 }
 
+// RouteChange will change a route on the system.
+// Equivalent to: `ip route change $route`
+func RouteChange(route *Route) error {
+	return pkgHandle.RouteChange(route)
+}
+
+// RouteChange will change a route on the system.
+// Equivalent to: `ip route change $route`
+func (h *Handle) RouteChange(route *Route) error {
+	flags := unix.NLM_F_REPLACE | unix.NLM_F_ACK
+	req := h.newNetlinkRequest(unix.RTM_NEWROUTE, flags)
+	_, err := h.routeHandle(route, req, nl.NewRtMsg())
+	return err
+}
+
 // RouteDel will delete a route from the system.
 // Equivalent to: `ip route del $route`
 func RouteDel(route *Route) error {
