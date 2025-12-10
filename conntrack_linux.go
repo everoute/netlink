@@ -236,9 +236,12 @@ type ProtoInfo interface {
 }
 
 // ProtoInfoTCP corresponds to the `tcp` struct of the __nfct_protoinfo union.
-// Only TCP state is currently supported.
 type ProtoInfoTCP struct {
-	State uint8
+	State          uint8
+	WsacleOriginal uint8
+	WsacleReply    uint8
+	FlagsOriginal  uint16
+	FlagsReply     uint16
 }
 
 // Protocol returns "tcp".
@@ -248,6 +251,14 @@ func (p *ProtoInfoTCP) toNlData() ([]*nl.RtAttr, error) {
 	ctProtoInfoTCP := nl.NewRtAttr(unix.NLA_F_NESTED|nl.CTA_PROTOINFO_TCP, []byte{})
 	ctProtoInfoTCPState := nl.NewRtAttr(nl.CTA_PROTOINFO_TCP_STATE, nl.Uint8Attr(p.State))
 	ctProtoInfoTCP.AddChild(ctProtoInfoTCPState)
+	ctProtoInfoTCPWscaleOriginal := nl.NewRtAttr(nl.CTA_PROTOINFO_TCP_WSCALE_ORIGINAL, nl.Uint8Attr(p.WsacleOriginal))
+	ctProtoInfoTCP.AddChild(ctProtoInfoTCPWscaleOriginal)
+	ctProtoInfoTCPWscaleReply := nl.NewRtAttr(nl.CTA_PROTOINFO_TCP_WSCALE_REPLY, nl.Uint8Attr(p.WsacleReply))
+	ctProtoInfoTCP.AddChild(ctProtoInfoTCPWscaleReply)
+	ctProtoInfoTCPFlagsOriginal := nl.NewRtAttr(nl.CTA_PROTOINFO_TCP_FLAGS_ORIGINAL, nl.BEUint16Attr(p.FlagsOriginal))
+	ctProtoInfoTCP.AddChild(ctProtoInfoTCPFlagsOriginal)
+	ctProtoInfoTCPFlagsReply := nl.NewRtAttr(nl.CTA_PROTOINFO_TCP_FLAGS_REPLY, nl.BEUint16Attr(p.FlagsReply))
+	ctProtoInfoTCP.AddChild(ctProtoInfoTCPFlagsReply)
 	ctProtoInfo.AddChild(ctProtoInfoTCP)
 
 	return []*nl.RtAttr{ctProtoInfo}, nil
@@ -276,6 +287,11 @@ type IPTuple struct {
 	Protocol uint8
 	SrcIP    net.IP
 	SrcPort  uint16
+
+	// ICMP only
+	ICMPID   uint16
+	ICMPType uint8
+	ICMPCode uint8
 }
 
 // toNlData generates the inner fields of a nested tuple netlink datastructure
@@ -319,7 +335,11 @@ type ConntrackFlow struct {
 	TimeStart  uint64
 	TimeStop   uint64
 	TimeOut    uint32
+	Status     uint32
+	Use        uint32
+	ID         uint32
 	Labels     []byte
+	LabelsMask []byte
 	ProtoInfo  ProtoInfo
 }
 
@@ -330,19 +350,37 @@ func (s *ConntrackFlow) String() string {
 	start := time.Unix(0, int64(s.TimeStart))
 	stop := time.Unix(0, int64(s.TimeStop))
 	timeout := int32(s.TimeOut)
-	res := fmt.Sprintf("%s\t%d src=%s dst=%s sport=%d dport=%d packets=%d bytes=%d\tsrc=%s dst=%s sport=%d dport=%d packets=%d bytes=%d mark=0x%x ",
-		nl.L4ProtoMap[s.Forward.Protocol], s.Forward.Protocol,
-		s.Forward.SrcIP.String(), s.Forward.DstIP.String(), s.Forward.SrcPort, s.Forward.DstPort, s.Forward.Packets, s.Forward.Bytes,
-		s.Reverse.SrcIP.String(), s.Reverse.DstIP.String(), s.Reverse.SrcPort, s.Reverse.DstPort, s.Reverse.Packets, s.Reverse.Bytes,
-		s.Mark)
+
+	var out string
+	if s.Forward.Protocol == unix.IPPROTO_ICMP || s.Forward.Protocol == unix.IPPROTO_ICMPV6 {
+		out = fmt.Sprintf("%s\t%d src=%s dst=%s id=%d type=%d code=%d packets=%d bytes=%d\tsrc=%s dst=%s id=%d type=%d code=%d packets=%d bytes=%d",
+			nl.L4ProtoMap[s.Forward.Protocol], s.Forward.Protocol,
+			s.Forward.SrcIP.String(), s.Forward.DstIP.String(), s.Forward.ICMPID, s.Forward.ICMPType, s.Forward.ICMPCode, s.Forward.Packets, s.Forward.Bytes,
+			s.Reverse.SrcIP.String(), s.Reverse.DstIP.String(), s.Reverse.ICMPID, s.Reverse.ICMPType, s.Reverse.ICMPCode, s.Reverse.Packets, s.Reverse.Bytes)
+	} else {
+		out = fmt.Sprintf("%s\t%d src=%s dst=%s sport=%d dport=%d packets=%d bytes=%d\tsrc=%s dst=%s sport=%d dport=%d packets=%d bytes=%d",
+			nl.L4ProtoMap[s.Forward.Protocol], s.Forward.Protocol,
+			s.Forward.SrcIP.String(), s.Forward.DstIP.String(), s.Forward.SrcPort, s.Forward.DstPort, s.Forward.Packets, s.Forward.Bytes,
+			s.Reverse.SrcIP.String(), s.Reverse.DstIP.String(), s.Reverse.SrcPort, s.Reverse.DstPort, s.Reverse.Packets, s.Reverse.Bytes)
+	}
+	out += fmt.Sprintf(" mark=0x%x", s.Mark)
 	if len(s.Labels) > 0 {
-		res += fmt.Sprintf("labels=0x%x ", s.Labels)
+		out += fmt.Sprintf(" labels=0x%x", s.Labels)
+	}
+	if len(s.LabelsMask) > 0 {
+		out += fmt.Sprintf("/0x%x", s.LabelsMask)
+	}
+	if s.Status != 0 {
+		out += fmt.Sprintf(" status=0x%x", s.Status)
 	}
 	if s.Zone != 0 {
-		res += fmt.Sprintf("zone=%d ", s.Zone)
+		out += fmt.Sprintf(" zone=%d", s.Zone)
 	}
-	res += fmt.Sprintf("start=%v stop=%v timeout=%d(sec)", start, stop, timeout)
-	return res
+	if s.Use != 0 {
+		out += fmt.Sprintf(" use=0x%x", s.Use)
+	}
+	out += fmt.Sprintf(" start=%v stop=%v timeout=%d(sec)", start, stop, timeout)
+	return out
 }
 
 // toNlData generates netlink messages representing the flow.
@@ -459,8 +497,8 @@ func parseIpTuple(reader *bytes.Reader, tpl *IPTuple) uint8 {
 	if t == nl.CTA_PROTO_NUM {
 		tpl.Protocol = uint8(v[0])
 	}
-	// We only parse TCP & UDP headers. Skip the others.
-	if tpl.Protocol != unix.IPPROTO_TCP && tpl.Protocol != unix.IPPROTO_UDP {
+	// We only parse TCP, UDP, ICMP, ICMPv6 headers. Skip the others.
+	if tpl.Protocol != unix.IPPROTO_TCP && tpl.Protocol != unix.IPPROTO_UDP && tpl.Protocol != unix.IPPROTO_ICMP && tpl.Protocol != unix.IPPROTO_ICMPV6 {
 		// skip the rest
 		bytesRemaining := protoInfoTotalLen - protoInfoBytesRead
 		reader.Seek(int64(bytesRemaining), seekCurrent)
@@ -469,7 +507,12 @@ func parseIpTuple(reader *bytes.Reader, tpl *IPTuple) uint8 {
 	// Skip 3 bytes of padding
 	reader.Seek(3, seekCurrent)
 	protoInfoBytesRead += 3
-	for i := 0; i < 2; i++ {
+	loopCount := 2
+	if tpl.Protocol == unix.IPPROTO_ICMP || tpl.Protocol == unix.IPPROTO_ICMPV6 {
+		loopCount = 3 // ID, Type, Code
+	}
+	var ICMPCodeDone, ICMPTypeDone bool
+	for i := 0; i < loopCount; i++ {
 		_, t, _ := parseNfAttrTL(reader)
 		protoInfoBytesRead += uint16(nl.SizeofNfattr)
 		switch t {
@@ -479,6 +522,26 @@ func parseIpTuple(reader *bytes.Reader, tpl *IPTuple) uint8 {
 		case nl.CTA_PROTO_DST_PORT:
 			parseBERaw16(reader, &tpl.DstPort)
 			protoInfoBytesRead += 2
+		case nl.CTA_PROTO_ICMP_ID:
+			fallthrough
+		case nl.CTA_PROTO_ICMPV6_ID:
+			parseBERaw16(reader, &tpl.ICMPID)
+			protoInfoBytesRead += 2
+		case nl.CTA_PROTO_ICMP_CODE:
+			fallthrough
+		case nl.CTA_PROTO_ICMPV6_CODE:
+			parseU8(reader, &tpl.ICMPCode)
+			protoInfoBytesRead += 1
+			ICMPCodeDone = true
+		case nl.CTA_PROTO_ICMP_TYPE:
+			fallthrough
+		case nl.CTA_PROTO_ICMPV6_TYPE:
+			parseU8(reader, &tpl.ICMPType)
+			protoInfoBytesRead += 1
+			ICMPTypeDone = true
+		}
+		if (t == nl.CTA_PROTO_ICMP_CODE || t == nl.CTA_PROTO_ICMP_TYPE) && (!ICMPCodeDone || !ICMPTypeDone) {
+			continue
 		}
 		// Skip 2 bytes of padding
 		reader.Seek(2, seekCurrent)
@@ -516,6 +579,10 @@ func skipNfAttrValue(r *bytes.Reader, len uint16) uint16 {
 	len = (len + nl.NLA_ALIGNTO - 1) & ^(nl.NLA_ALIGNTO - 1)
 	r.Seek(int64(len), seekCurrent)
 	return len
+}
+
+func parseU8(r *bytes.Reader, v *uint8) {
+	binary.Read(r, binary.BigEndian, v)
 }
 
 func parseBERaw16(r *bytes.Reader, v *uint16) {
@@ -590,6 +657,22 @@ func parseProtoInfoTCP(r *bytes.Reader, attrLen uint16) *ProtoInfoTCP {
 		switch t {
 		case nl.CTA_PROTOINFO_TCP_STATE:
 			p.State = parseProtoInfoTCPState(r)
+			bytesRead += nl.SizeofNfattr
+		case nl.CTA_PROTOINFO_TCP_WSCALE_ORIGINAL:
+			parseU8(r, &p.WsacleOriginal)
+			r.Seek(nl.SizeofNfattr-1, seekCurrent)
+			bytesRead += nl.SizeofNfattr
+		case nl.CTA_PROTOINFO_TCP_WSCALE_REPLY:
+			parseU8(r, &p.WsacleReply)
+			r.Seek(nl.SizeofNfattr-1, seekCurrent)
+			bytesRead += nl.SizeofNfattr
+		case nl.CTA_PROTOINFO_TCP_FLAGS_ORIGINAL:
+			parseBERaw16(r, &p.FlagsOriginal)
+			r.Seek(nl.SizeofNfattr-2, seekCurrent)
+			bytesRead += nl.SizeofNfattr
+		case nl.CTA_PROTOINFO_TCP_FLAGS_REPLY:
+			parseBERaw16(r, &p.FlagsReply)
+			r.Seek(nl.SizeofNfattr-2, seekCurrent)
 			bytesRead += nl.SizeofNfattr
 		default:
 			bytesRead += int(skipNfAttrValue(r, l))
@@ -694,14 +777,20 @@ func parseRawData(data []byte) *ConntrackFlow {
 			switch t {
 			case nl.CTA_MARK:
 				s.Mark = parseConnectionMark(reader)
-			case nl.CTA_LABELS:
-				s.Labels = parseConnectionLabels(reader)
-			case nl.CTA_TIMEOUT:
-				s.TimeOut = parseTimeOut(reader)
-			case nl.CTA_ID, nl.CTA_STATUS, nl.CTA_USE:
-				skipNfAttrValue(reader, l)
 			case nl.CTA_ZONE:
 				s.Zone = parseConnectionZone(reader)
+			case nl.CTA_LABELS:
+				s.Labels = parseConnectionLabels(reader)
+			case nl.CTA_LABELS_MASK:
+				s.LabelsMask = parseConnectionLabels(reader)
+			case nl.CTA_TIMEOUT:
+				s.TimeOut = parseTimeOut(reader)
+			case nl.CTA_STATUS:
+				parseBERaw32(reader, &s.Status)
+			case nl.CTA_USE:
+				parseBERaw32(reader, &s.Use)
+			case nl.CTA_ID:
+				parseBERaw32(reader, &s.ID)
 			default:
 				skipNfAttrValue(reader, l)
 			}
