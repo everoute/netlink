@@ -4,10 +4,14 @@
 package netlink
 
 import (
+	"encoding/json"
+	"fmt"
+	"math/rand"
 	"net"
 	"testing"
 	"time"
 
+	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
 )
 
@@ -694,4 +698,254 @@ func ruleEquals(a, b Rule) bool {
 		a.Mark == b.Mark &&
 		(ptrEqual(a.Mask, b.Mask) || (a.Mark != 0 &&
 			(a.Mask == nil && *b.Mask == 0xFFFFFFFF || b.Mask == nil && *a.Mask == 0xFFFFFFFF)))
+}
+
+// expectRuleUpdate returns whether the expected updated is received within one minute.
+func expectRuleUpdate(ch <-chan RuleUpdate, t uint16, match func(Rule) bool) ([]Rule, bool) {
+	for {
+		receivedRules := []Rule{}
+		timeout := time.After(time.Minute)
+		select {
+		case update := <-ch:
+			j, _ := json.Marshal(update)
+			fmt.Printf("update: %s\n", string(j))
+			if update.Type == t && match(update.Rule) {
+				receivedRules = append(receivedRules, update.Rule)
+				return receivedRules, true
+			}
+		case <-timeout:
+			return receivedRules, false
+		}
+	}
+}
+
+func TestRuleSubscribe(t *testing.T) {
+	tearDown := setUpNetlinkTest(t)
+	defer tearDown()
+
+	ch := make(chan RuleUpdate)
+	done := make(chan struct{})
+	defer close(done)
+	var lastError error
+	defer func() {
+		if lastError != nil {
+			t.Fatalf("Fatal error received during subscription: %v", lastError)
+		}
+	}()
+	if err := RuleSubscribe(ch, done); err != nil {
+		lastError = err
+	}
+
+	srcNet := &net.IPNet{IP: net.IPv4(172, 16, 0, 1), Mask: net.CIDRMask(16, 32)}
+	dstNet := &net.IPNet{IP: net.IPv4(172, 16, 1, 1), Mask: net.CIDRMask(24, 32)}
+
+	rule := NewRule()
+	rule.Family = FAMILY_V4
+	rule.Table = unix.RT_TABLE_MAIN
+	rule.Src = srcNet
+	rule.Dst = dstNet
+	rule.Priority = 5
+	rule.OifName = "lo"
+	rule.IifName = "lo"
+	rule.Invert = true
+	rule.Tos = 0x10
+	rule.Dport = NewRulePortRange(80, 80)
+	rule.Sport = NewRulePortRange(1000, 1024)
+	rule.IPProto = unix.IPPROTO_UDP
+	rule.UIDRange = NewRuleUIDRange(100, 100)
+	rule.Protocol = unix.RTPROT_KERNEL
+
+	match := func(r Rule) bool {
+		return r.Src.String() == srcNet.String() &&
+			r.Dst.String() == dstNet.String() &&
+			r.Priority == 5 &&
+			r.OifName == "lo" &&
+			r.IifName == "lo" &&
+			r.Invert == true &&
+			r.Tos == 0x10 &&
+			r.Dport.Start == 80 &&
+			r.Dport.End == 80 &&
+			r.Sport.Start == 1000 &&
+			r.Sport.End == 1024 &&
+			r.IPProto == unix.IPPROTO_UDP &&
+			r.UIDRange.Start == 100 &&
+			r.UIDRange.End == 100 &&
+			r.Protocol == unix.RTPROT_KERNEL
+	}
+
+	if err := RuleAdd(rule); err != nil {
+		t.Fatal(err)
+	}
+
+	receivedRules, ok := expectRuleUpdate(ch, unix.RTM_NEWRULE, match)
+	if !ok {
+		t.Fatal("Add update not received as expected", receivedRules)
+	}
+
+	if err := RuleDel(rule); err != nil {
+		t.Fatal(err)
+	}
+	receivedRules, ok = expectRuleUpdate(ch, unix.RTM_DELRULE, match)
+	if !ok {
+		t.Fatal("Del update not received as expected", receivedRules)
+	}
+}
+
+func TestRuleSubscribeWithOptions(t *testing.T) {
+	tearDown := setUpNetlinkTest(t)
+	defer tearDown()
+
+	ch := make(chan RuleUpdate, 10)
+	done := make(chan struct{})
+	defer close(done)
+	var lastError error
+	defer func() {
+		if lastError != nil {
+			t.Fatalf("Fatal error received during subscription: %v", lastError)
+		}
+	}()
+	if err := RuleSubscribeWithOptions(ch, done, RuleSubscribeOptions{
+		ErrorCallback: func(err error) { lastError = err },
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := NewRule()
+	rule.Table = rand.Intn(1000) + 10000
+	rule.Priority = rand.Intn(1000) + 10000
+	rule.IifName = "lo"
+
+	match := func(r Rule) bool {
+		return r.Table == rule.Table &&
+			r.Priority == rule.Priority &&
+			r.IifName == "lo"
+	}
+
+	if err := RuleAdd(rule); err != nil {
+		t.Fatal(err)
+	}
+	receivedRules, ok := expectRuleUpdate(ch, unix.RTM_NEWRULE, match)
+	if !ok {
+		t.Fatal("Add update not received as expected", receivedRules)
+	}
+
+	if err := RuleDel(rule); err != nil {
+		t.Fatal(err)
+	}
+	receivedRules, ok = expectRuleUpdate(ch, unix.RTM_DELRULE, match)
+	if !ok {
+		t.Fatal("Del update not received as expected", receivedRules)
+	}
+}
+
+func TestRuleSubscribeAt(t *testing.T) {
+	skipUnlessRoot(t)
+
+	// Create an handle on a custom netns
+	newNs, err := netns.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer newNs.Close()
+
+	nh, err := NewHandleAt(newNs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nh.Close()
+
+	ch := make(chan RuleUpdate)
+	done := make(chan struct{})
+	defer close(done)
+	var lastError error
+	defer func() {
+		if lastError != nil {
+			t.Fatalf("Fatal error received during subscription: %v", lastError)
+		}
+	}()
+	if err := RuleSubscribeAt(newNs, ch, done); err != nil {
+		lastError = err
+		t.Fatal(err)
+	}
+
+	rule := NewRule()
+	rule.Table = rand.Intn(1000) + 10000
+	rule.Priority = rand.Intn(1000) + 10000
+	rule.IifName = "lo"
+
+	match := func(r Rule) bool {
+		return r.Table == rule.Table &&
+			r.Priority == rule.Priority &&
+			r.IifName == "lo"
+	}
+
+	if err := nh.RuleAdd(rule); err != nil {
+		t.Fatal(err)
+	}
+	receivedRules, ok := expectRuleUpdate(ch, unix.RTM_NEWRULE, match)
+	if !ok {
+		t.Fatal("Add update not received as expected", receivedRules)
+	}
+
+	if err := nh.RuleDel(rule); err != nil {
+		t.Fatal(err)
+	}
+	receivedRules, ok = expectRuleUpdate(ch, unix.RTM_DELRULE, match)
+	if !ok {
+		t.Fatal("Del update not received as expected", receivedRules)
+	}
+}
+
+func TestRuleSubscribeListExisting(t *testing.T) {
+	skipUnlessRoot(t)
+
+	// Create an handle on a custom netns
+	newNs, err := netns.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer newNs.Close()
+
+	nh, err := NewHandleAt(newNs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nh.Close()
+
+	rule := NewRule()
+	rule.Table = rand.Intn(1000) + 10000
+	rule.Priority = rand.Intn(1000) + 10000
+	rule.IifName = "lo"
+
+	if err := nh.RuleAdd(rule); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := make(chan RuleUpdate)
+	done := make(chan struct{})
+	defer close(done)
+	if err := RuleSubscribeWithOptions(ch, done, RuleSubscribeOptions{
+		Namespace:    &newNs,
+		ListExisting: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	match := func(r Rule) bool {
+		return r.Table == rule.Table &&
+			r.Priority == rule.Priority &&
+			r.IifName == "lo"
+	}
+
+	receivedRules, ok := expectRuleUpdate(ch, unix.RTM_NEWRULE, match)
+	if !ok {
+		t.Fatal("Add update not received as expected", receivedRules)
+	}
+	if err := nh.RuleDel(rule); err != nil {
+		t.Fatal(err)
+	}
+	receivedRules, ok = expectRuleUpdate(ch, unix.RTM_DELRULE, match)
+	if !ok {
+		t.Fatal("Del update not received as expected", receivedRules)
+	}
 }
