@@ -31,7 +31,7 @@ func CheckError(t *testing.T, err error) {
 }
 
 func udpFlowCreateProg(t *testing.T, flows, srcPort int, dstIP string, dstPort int) {
-	for i := range flows {
+	for i := 0; i < flows; i++ {
 		ServerAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", dstIP, dstPort))
 		CheckError(t, err)
 
