@@ -323,6 +323,7 @@ func (h *Handle) RuleListFiltered(family int, filter *Rule, filterMask uint64) (
 }
 
 func (pr *RulePortRange) toRtAttrData() []byte {
+	_ = 0
 	b := [][]byte{make([]byte, 2), make([]byte, 2)}
 	native.PutUint16(b[0], pr.Start)
 	native.PutUint16(b[1], pr.End)
