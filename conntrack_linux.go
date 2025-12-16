@@ -318,10 +318,34 @@ func (t *IPTuple) toNlData(family uint8) ([]*nl.RtAttr, error) {
 	ctTupleProto := nl.NewRtAttr(unix.NLA_F_NESTED|nl.CTA_TUPLE_PROTO, nil)
 	ctTupleProtoNum := nl.NewRtAttr(nl.CTA_PROTO_NUM, []byte{t.Protocol})
 	ctTupleProto.AddChild(ctTupleProtoNum)
-	ctTupleProtoSrcPort := nl.NewRtAttr(nl.CTA_PROTO_SRC_PORT, nl.BEUint16Attr(t.SrcPort))
-	ctTupleProto.AddChild(ctTupleProtoSrcPort)
-	ctTupleProtoDstPort := nl.NewRtAttr(nl.CTA_PROTO_DST_PORT, nl.BEUint16Attr(t.DstPort))
-	ctTupleProto.AddChild(ctTupleProtoDstPort)
+
+	// For ICMP/ICMPv6, use ICMP-specific attributes instead of ports
+	switch t.Protocol {
+	case unix.IPPROTO_ICMP:
+		ctTupleProtoICMPID := nl.NewRtAttr(nl.CTA_PROTO_ICMP_ID, nl.BEUint16Attr(t.ICMPID))
+		ctTupleProto.AddChild(ctTupleProtoICMPID)
+		ctTupleProtoICMPType := nl.NewRtAttr(nl.CTA_PROTO_ICMP_TYPE, []byte{t.ICMPType})
+		ctTupleProto.AddChild(ctTupleProtoICMPType)
+		ctTupleProtoICMPCode := nl.NewRtAttr(nl.CTA_PROTO_ICMP_CODE, []byte{t.ICMPCode})
+		ctTupleProto.AddChild(ctTupleProtoICMPCode)
+	case unix.IPPROTO_ICMPV6:
+		ctTupleProtoICMPV6ID := nl.NewRtAttr(nl.CTA_PROTO_ICMPV6_ID, nl.BEUint16Attr(t.ICMPID))
+		ctTupleProto.AddChild(ctTupleProtoICMPV6ID)
+		ctTupleProtoICMPV6Type := nl.NewRtAttr(nl.CTA_PROTO_ICMPV6_TYPE, []byte{t.ICMPType})
+		ctTupleProto.AddChild(ctTupleProtoICMPV6Type)
+		ctTupleProtoICMPV6Code := nl.NewRtAttr(nl.CTA_PROTO_ICMPV6_CODE, []byte{t.ICMPCode})
+		ctTupleProto.AddChild(ctTupleProtoICMPV6Code)
+	case unix.IPPROTO_TCP, unix.IPPROTO_UDP, unix.IPPROTO_DCCP, unix.IPPROTO_SCTP, unix.IPPROTO_UDPLITE:
+		// For other protocols (TCP, UDP, etc.), use port attributes
+		ctTupleProtoSrcPort := nl.NewRtAttr(nl.CTA_PROTO_SRC_PORT, nl.BEUint16Attr(t.SrcPort))
+		ctTupleProto.AddChild(ctTupleProtoSrcPort)
+		ctTupleProtoDstPort := nl.NewRtAttr(nl.CTA_PROTO_DST_PORT, nl.BEUint16Attr(t.DstPort))
+		ctTupleProto.AddChild(ctTupleProtoDstPort)
+	case unix.IPPROTO_IPIP:
+		fallthrough
+	default:
+		// do nothing
+	}
 
 	return []*nl.RtAttr{ctTupleIP, ctTupleProto}, nil
 }
