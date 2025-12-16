@@ -421,6 +421,8 @@ func (s *ConntrackFlow) toNlData() ([]*nl.RtAttr, error) {
 	//	<BEuint64>
 	//	<len, CTA_LABELS>
 	//	<binary data>
+	//  <len, CTA_LABELS_MASK>
+	//	<binary data>
 	//	<len, NLA_F_NESTED|CTA_PROTOINFO>
 
 	// CTA_TUPLE_ORIG
@@ -447,13 +449,21 @@ func (s *ConntrackFlow) toNlData() ([]*nl.RtAttr, error) {
 	ctTimeout := nl.NewRtAttr(nl.CTA_TIMEOUT, nl.BEUint32Attr(s.TimeOut))
 
 	payload = append(payload, ctTupleOrig, ctTupleReply, ctMark, ctTimeout)
-	// Labels: nil => do not send; 16 zero bytes => clear all labels.
+	// Labels: nil => do not send; 16 zero bytes => update conntrack labels.
 	if s.Labels != nil {
 		if len(s.Labels) != 16 {
 			return nil, fmt.Errorf("conntrack CTA_LABELS must be 16 bytes, got %d", len(s.Labels))
 		}
 		ctLabels := nl.NewRtAttr(nl.CTA_LABELS, s.Labels)
 		payload = append(payload, ctLabels)
+		// Labels Mask: nil => do not send; 16 zero bytes => update conntrack labels with mask.
+		if s.LabelsMask != nil {
+			if len(s.LabelsMask) != 16 {
+				return nil, fmt.Errorf("conntrack CTA_LABELS_MASK must be 16 bytes, got %d", len(s.LabelsMask))
+			}
+			ctLabelsMask := nl.NewRtAttr(nl.CTA_LABELS_MASK, s.LabelsMask)
+			payload = append(payload, ctLabelsMask)
+		}
 	}
 
 	if s.ProtoInfo != nil {
