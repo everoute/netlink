@@ -437,6 +437,8 @@ func (s *ConntrackFlow) toNlData() ([]*nl.RtAttr, error) {
 	//			<BEuint16>
 	//			<len, CTA_PROTO_DST_PORT>
 	//			<BEuint16>
+	//  <len, CTA_ZONE>
+	//	<BEuint16>
 	//	<len, CTA_STATUS>
 	//	<uint64>
 	//	<len, CTA_MARK>
@@ -473,6 +475,12 @@ func (s *ConntrackFlow) toNlData() ([]*nl.RtAttr, error) {
 	ctTimeout := nl.NewRtAttr(nl.CTA_TIMEOUT, nl.BEUint32Attr(s.TimeOut))
 
 	payload = append(payload, ctTupleOrig, ctTupleReply, ctMark, ctTimeout)
+	// Zone is required for matching conntrack entries in the kernel
+	// The kernel uses zone when looking up conntrack entries: nf_conntrack_find_get(net, &zone, &otuple)
+	if s.Zone != 0 {
+		ctZone := nl.NewRtAttr(nl.CTA_ZONE, nl.BEUint16Attr(s.Zone))
+		payload = append(payload, ctZone)
+	}
 	// Labels: nil => do not send; 16 zero bytes => update conntrack labels.
 	if s.Labels != nil {
 		if len(s.Labels) != 16 {
