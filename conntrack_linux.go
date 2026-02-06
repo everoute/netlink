@@ -297,15 +297,15 @@ type IPTuple struct {
 // toNlData generates the inner fields of a nested tuple netlink datastructure
 // does not generate the "nested"-flagged outer message.
 func (t *IPTuple) toNlData(family uint8) ([]*nl.RtAttr, error) {
-
 	var srcIPsFlag, dstIPsFlag int
-	if family == nl.FAMILY_V4 {
+	switch family {
+	case nl.FAMILY_V4:
 		srcIPsFlag = nl.CTA_IP_V4_SRC
 		dstIPsFlag = nl.CTA_IP_V4_DST
-	} else if family == nl.FAMILY_V6 {
+	case nl.FAMILY_V6:
 		srcIPsFlag = nl.CTA_IP_V6_SRC
 		dstIPsFlag = nl.CTA_IP_V6_DST
-	} else {
+	default:
 		return []*nl.RtAttr{}, fmt.Errorf("couldn't generate netlink message for tuple due to unrecognized FamilyType '%d'", family)
 	}
 
@@ -319,9 +319,27 @@ func (t *IPTuple) toNlData(family uint8) ([]*nl.RtAttr, error) {
 	ctTupleProtoNum := nl.NewRtAttr(nl.CTA_PROTO_NUM, []byte{t.Protocol})
 	ctTupleProto.AddChild(ctTupleProtoNum)
 
-	// For ICMP/ICMPv6, use ICMP-specific attributes instead of ports
+	// Protocol-specific attribute handling:
+	// The kernel's ctnetlink_parse_tuple_proto() calls l4proto->nlattr_to_tuple() for each protocol.
+	// Different protocols use different netlink attribute parsers:
+	//
+	// 1. ICMP/ICMPv6: Use custom nlattr_to_tuple (icmp_nlattr_to_tuple/icmpv6_nlattr_to_tuple)
+	//    - Require: CTA_PROTO_ICMP_ID/TYPE/CODE (or ICMPV6 variants)
+	//    - Files: nf_conntrack_proto_icmp.c, nf_conntrack_proto_icmpv6.c
+	//
+	// 2. Port-based protocols: Use nf_ct_port_nlattr_to_tuple()
+	//    - Require: CTA_PROTO_SRC_PORT and CTA_PROTO_DST_PORT (even if 0 for protocols like GRE)
+	//    - Protocols: TCP(6), UDP(17), DCCP(33), SCTP(132), UDPLite(136), GRE(47)
+	//    - Files: nf_conntrack_proto_tcp.c, nf_conntrack_proto_udp.c, etc.
+	//    - Note: GRE doesn't have ports, but still uses port_nlattr_to_tuple, so ports must be 0
+	//
+	// 3. Generic protocols: Use nf_conntrack_l4proto_generic (no nlattr_to_tuple)
+	//    - Require: Only CTA_PROTO_NUM (no additional attributes)
+	//    - Protocols: IPIP(4) and all other unregistered protocols
+	//    - File: nf_conntrack_proto_generic.c
 	switch t.Protocol {
 	case unix.IPPROTO_ICMP:
+		// ICMP uses icmp_nlattr_to_tuple, requires ID/Type/Code
 		ctTupleProtoICMPID := nl.NewRtAttr(nl.CTA_PROTO_ICMP_ID, nl.BEUint16Attr(t.ICMPID))
 		ctTupleProto.AddChild(ctTupleProtoICMPID)
 		ctTupleProtoICMPType := nl.NewRtAttr(nl.CTA_PROTO_ICMP_TYPE, []byte{t.ICMPType})
@@ -329,14 +347,17 @@ func (t *IPTuple) toNlData(family uint8) ([]*nl.RtAttr, error) {
 		ctTupleProtoICMPCode := nl.NewRtAttr(nl.CTA_PROTO_ICMP_CODE, []byte{t.ICMPCode})
 		ctTupleProto.AddChild(ctTupleProtoICMPCode)
 	case unix.IPPROTO_ICMPV6:
+		// ICMPv6 uses icmpv6_nlattr_to_tuple, requires ID/Type/Code
 		ctTupleProtoICMPV6ID := nl.NewRtAttr(nl.CTA_PROTO_ICMPV6_ID, nl.BEUint16Attr(t.ICMPID))
 		ctTupleProto.AddChild(ctTupleProtoICMPV6ID)
 		ctTupleProtoICMPV6Type := nl.NewRtAttr(nl.CTA_PROTO_ICMPV6_TYPE, []byte{t.ICMPType})
 		ctTupleProto.AddChild(ctTupleProtoICMPV6Type)
 		ctTupleProtoICMPV6Code := nl.NewRtAttr(nl.CTA_PROTO_ICMPV6_CODE, []byte{t.ICMPCode})
 		ctTupleProto.AddChild(ctTupleProtoICMPV6Code)
-	case unix.IPPROTO_TCP, unix.IPPROTO_UDP, unix.IPPROTO_DCCP, unix.IPPROTO_SCTP, unix.IPPROTO_UDPLITE:
-		// For other protocols (TCP, UDP, etc.), use port attributes
+	case unix.IPPROTO_TCP, unix.IPPROTO_UDP, unix.IPPROTO_DCCP, unix.IPPROTO_SCTP, unix.IPPROTO_UDPLITE, unix.IPPROTO_GRE:
+		// All these protocols use nf_ct_port_nlattr_to_tuple() which requires both port attributes.
+		// For protocols without ports (like GRE), ports must be set to 0, but the attributes must still be present.
+		// Without these attributes, ctnetlink_parse_tuple_proto() will return -EINVAL.
 		ctTupleProtoSrcPort := nl.NewRtAttr(nl.CTA_PROTO_SRC_PORT, nl.BEUint16Attr(t.SrcPort))
 		ctTupleProto.AddChild(ctTupleProtoSrcPort)
 		ctTupleProtoDstPort := nl.NewRtAttr(nl.CTA_PROTO_DST_PORT, nl.BEUint16Attr(t.DstPort))
@@ -344,7 +365,9 @@ func (t *IPTuple) toNlData(family uint8) ([]*nl.RtAttr, error) {
 	case unix.IPPROTO_IPIP:
 		fallthrough
 	default:
-		// do nothing
+		// Generic protocols (IPIP and all others) use nf_conntrack_l4proto_generic
+		// which has no nlattr_to_tuple function, so only CTA_PROTO_NUM is required.
+		// No additional attributes needed.
 	}
 
 	return []*nl.RtAttr{ctTupleIP, ctTupleProto}, nil
@@ -397,9 +420,7 @@ func (s *ConntrackFlow) String() string {
 	if s.Status != 0 {
 		out += fmt.Sprintf(" status=0x%x", s.Status)
 	}
-	if s.Zone != 0 {
-		out += fmt.Sprintf(" zone=%d", s.Zone)
-	}
+	out += fmt.Sprintf(" zone=%d", s.Zone)
 	if s.Use != 0 {
 		out += fmt.Sprintf(" use=0x%x", s.Use)
 	}
@@ -477,10 +498,10 @@ func (s *ConntrackFlow) toNlData() ([]*nl.RtAttr, error) {
 	payload = append(payload, ctTupleOrig, ctTupleReply, ctMark, ctTimeout)
 	// Zone is required for matching conntrack entries in the kernel
 	// The kernel uses zone when looking up conntrack entries: nf_conntrack_find_get(net, &zone, &otuple)
-	if s.Zone != 0 {
-		ctZone := nl.NewRtAttr(nl.CTA_ZONE, nl.BEUint16Attr(s.Zone))
-		payload = append(payload, ctZone)
-	}
+	ctZone := nl.NewRtAttr(nl.CTA_ZONE, nl.BEUint16Attr(s.Zone))
+	payload = append(payload, ctZone)
+	ctStatus := nl.NewRtAttr(nl.CTA_STATUS, nl.BEUint32Attr(s.Status))
+	payload = append(payload, ctStatus)
 	// Labels: nil => do not send; 16 zero bytes => update conntrack labels.
 	if s.Labels != nil {
 		if len(s.Labels) != 16 {
