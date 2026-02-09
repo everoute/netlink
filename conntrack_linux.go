@@ -48,8 +48,8 @@ type InetFamily uint8
 //
 // If the returned error is [ErrDumpInterrupted], results may be inconsistent
 // or incomplete.
-func ConntrackTableList(table ConntrackTableType, family InetFamily) ([]*ConntrackFlow, error) {
-	return pkgHandle.ConntrackTableList(table, family)
+func ConntrackTableList(table ConntrackTableType, family InetFamily, allocator func() *ConntrackFlow) ([]*ConntrackFlow, error) {
+	return pkgHandle.ConntrackTableList(table, family, allocator)
 }
 
 // ConntrackTableFlush flushes all the flows of a specified table
@@ -85,8 +85,8 @@ func ConntrackDeleteFilters(table ConntrackTableType, family InetFamily, filters
 	return pkgHandle.ConntrackDeleteFilters(table, family, filters...)
 }
 
-func ConntrackTableListStream(table ConntrackTableType, family InetFamily, handle chan *ConntrackFlow) error {
-	return pkgHandle.ConntrackTableListStream(table, family, handle)
+func ConntrackTableListStream(table ConntrackTableType, family InetFamily, handle chan *ConntrackFlow, allocator func() *ConntrackFlow) error {
+	return pkgHandle.ConntrackTableListStream(table, family, handle, allocator)
 }
 
 // ConntrackTableList returns the flow list of a table of a specific family using the netlink handle passed
@@ -94,7 +94,7 @@ func ConntrackTableListStream(table ConntrackTableType, family InetFamily, handl
 //
 // If the returned error is [ErrDumpInterrupted], results may be inconsistent
 // or incomplete.
-func (h *Handle) ConntrackTableList(table ConntrackTableType, family InetFamily) ([]*ConntrackFlow, error) {
+func (h *Handle) ConntrackTableList(table ConntrackTableType, family InetFamily, allocator func() *ConntrackFlow) ([]*ConntrackFlow, error) {
 	res, executeErr := h.dumpConntrackTable(table, family)
 	if executeErr != nil && !errors.Is(executeErr, ErrDumpInterrupted) {
 		return nil, executeErr
@@ -103,7 +103,7 @@ func (h *Handle) ConntrackTableList(table ConntrackTableType, family InetFamily)
 	// Deserialize all the flows
 	var result []*ConntrackFlow
 	for _, dataRaw := range res {
-		result = append(result, parseRawData(dataRaw))
+		result = append(result, parseRawData(dataRaw, allocator))
 	}
 
 	return result, executeErr
@@ -176,8 +176,12 @@ func (h *Handle) ConntrackDeleteFilters(table ConntrackTableType, family InetFam
 
 	var totalFilterErrors int
 	var matched uint
+	var tempConntrackFlow ConntrackFlow
+	allocator := func() *ConntrackFlow {
+		return &tempConntrackFlow
+	}
 	for _, dataRaw := range res {
-		flow := parseRawData(dataRaw)
+		flow := parseRawData(dataRaw, allocator)
 		for _, filter := range filters {
 			if match := filter.MatchConntrackFlow(flow); match {
 				req2 := h.newConntrackRequest(table, family, nl.IPCTNL_MSG_CT_DELETE, unix.NLM_F_ACK)
@@ -199,18 +203,18 @@ func (h *Handle) ConntrackDeleteFilters(table ConntrackTableType, family InetFam
 	return matched, finalErr
 }
 
-func (h *Handle) ConntrackTableListStream(table ConntrackTableType, family InetFamily, handle chan *ConntrackFlow) error {
+func (h *Handle) ConntrackTableListStream(table ConntrackTableType, family InetFamily, handle chan *ConntrackFlow, allocator func() *ConntrackFlow) error {
 	req := h.newConntrackRequest(table, family, nl.IPCTNL_MSG_CT_GET, unix.NLM_F_DUMP)
 
 	err := req.ExecuteIter(unix.NETLINK_NETFILTER, 0, func(dataRaw []byte) bool {
-		handle <- parseRawData(dataRaw)
+		handle <- parseRawData(dataRaw, allocator)
 		return true
 	})
 
 	return err
 }
 
-func (h *Handle) newConntrackRequest(table ConntrackTableType, family InetFamily, operation, flags int) *nl.NetlinkRequest {
+func (h *Handle) newConntrackRequest(table ConntrackTableType, family InetFamily, operation, flags int) nl.NetlinkRequest {
 	// Create the Netlink request object
 	req := h.newNetlinkRequest((int(table)<<8)|operation, flags)
 	// Add the netfilter header
@@ -795,8 +799,13 @@ func parseConnectionZone(r *bytes.Reader) (zone uint16) {
 	return
 }
 
-func parseRawData(data []byte) *ConntrackFlow {
-	s := &ConntrackFlow{}
+func parseRawData(data []byte, allocator func() *ConntrackFlow) *ConntrackFlow {
+	var s *ConntrackFlow
+	if allocator != nil {
+		s = allocator()
+	} else {
+		s = &ConntrackFlow{}
+	}
 	// First there is the Nfgenmsg header
 	// consume only the family field
 	reader := bytes.NewReader(data)

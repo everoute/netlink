@@ -1047,7 +1047,7 @@ func LinkSetXdpFdWithFlags(link Link, fd, flags int) error {
 	msg.Index = int32(base.Index)
 	req.AddData(msg)
 
-	addXdpAttrs(&LinkXdp{Fd: fd, Flags: uint32(flags)}, req)
+	req = addXdpAttrs(req, &LinkXdp{Fd: fd, Flags: uint32(flags)})
 
 	_, err := req.Execute(unix.NETLINK_ROUTE, 0)
 	return err
@@ -1755,7 +1755,7 @@ func (h *Handle) linkModify(link Link, flags int) error {
 	}
 
 	if base.Xdp != nil {
-		addXdpAttrs(base.Xdp, req)
+		req = addXdpAttrs(req, base.Xdp)
 	}
 
 	linkInfo := nl.NewRtAttr(unix.IFLA_LINKINFO, nil)
@@ -2113,7 +2113,7 @@ func (h *Handle) LinkByIndex(index int) (Link, error) {
 	return execGetLink(req)
 }
 
-func execGetLink(req *nl.NetlinkRequest) (Link, error) {
+func execGetLink(req nl.NetlinkRequest) (Link, error) {
 	msgs, err := req.Execute(unix.NETLINK_ROUTE, 0)
 	if err != nil {
 		if errno, ok := err.(syscall.Errno); ok {
@@ -2616,7 +2616,7 @@ func linkSubscribeAt(newNs, curNs netns.NsHandle, ch chan<- LinkUpdate, done <-c
 			unix.NLM_F_DUMP)
 		msg := nl.NewIfInfomsg(unix.AF_UNSPEC)
 		req.AddData(msg)
-		if err := s.Send(req); err != nil {
+		if err := s.Send(req.Serialize()); err != nil {
 			return err
 		}
 	}
@@ -3598,7 +3598,7 @@ func parseGretunData(link Link, data []syscall.NetlinkRouteAttr) {
 	}
 }
 
-func addXdpAttrs(xdp *LinkXdp, req *nl.NetlinkRequest) {
+func addXdpAttrs(req nl.NetlinkRequest, xdp *LinkXdp) nl.NetlinkRequest {
 	attrs := nl.NewRtAttr(unix.IFLA_XDP|unix.NLA_F_NESTED, nil)
 	b := make([]byte, 4)
 	native.PutUint32(b, uint32(xdp.Fd))
@@ -3609,6 +3609,7 @@ func addXdpAttrs(xdp *LinkXdp, req *nl.NetlinkRequest) {
 		attrs.AddRtAttr(nl.IFLA_XDP_FLAGS, b)
 	}
 	req.AddData(attrs)
+	return req
 }
 
 func parseLinkXdp(data []byte) (*LinkXdp, error) {

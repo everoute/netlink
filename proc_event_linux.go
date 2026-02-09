@@ -134,7 +134,7 @@ func ProcEventMonitor(ch chan<- ProcEvent, done <-chan struct{}, errorChan chan<
 	cm := nl.NewCnMsg(CN_IDX_PROC, CN_VAL_PROC, PROC_CN_MCAST_LISTEN)
 	nlmsg.AddData(cm)
 
-	s.Send(&nlmsg)
+	s.Send(nlmsg.Serialize())
 
 	if done != nil {
 		go func() {

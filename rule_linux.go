@@ -24,7 +24,7 @@ func RuleAdd(rule *Rule) error {
 // Equivalent to: ip rule add
 func (h *Handle) RuleAdd(rule *Rule) error {
 	req := h.newNetlinkRequest(unix.RTM_NEWRULE, unix.NLM_F_CREATE|unix.NLM_F_EXCL|unix.NLM_F_ACK)
-	return ruleHandle(rule, req)
+	return ruleHandle(req, rule)
 }
 
 // RuleDel deletes a rule from the system.
@@ -37,10 +37,10 @@ func RuleDel(rule *Rule) error {
 // Equivalent to: ip rule del
 func (h *Handle) RuleDel(rule *Rule) error {
 	req := h.newNetlinkRequest(unix.RTM_DELRULE, unix.NLM_F_ACK)
-	return ruleHandle(rule, req)
+	return ruleHandle(req, rule)
 }
 
-func ruleHandle(rule *Rule, req *nl.NetlinkRequest) error {
+func ruleHandle(req nl.NetlinkRequest, rule *Rule) error {
 	msg := nl.NewRtMsg()
 	msg.Family = unix.AF_INET
 	msg.Protocol = unix.RTPROT_BOOT
@@ -452,7 +452,7 @@ func ruleSubscribeAt(newNs, curNs netns.NsHandle, ch chan<- RuleUpdate, done <-c
 			unix.NLM_F_DUMP)
 		infmsg := nl.NewIfInfomsg(unix.AF_UNSPEC)
 		req.AddData(infmsg)
-		if err := s.Send(req); err != nil {
+		if err := s.Send(req.Serialize()); err != nil {
 			return err
 		}
 	}

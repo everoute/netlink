@@ -152,7 +152,8 @@ func (h *Handle) qdiscModify(cmd, flags int, qdisc Qdisc) error {
 
 	// When deleting don't bother building the rest of the netlink payload
 	if cmd != unix.RTM_DELQDISC {
-		if err := qdiscPayload(req, qdisc); err != nil {
+		var err error
+		if req, err = qdiscPayload(req, qdisc); err != nil {
 			return err
 		}
 	}
@@ -161,7 +162,7 @@ func (h *Handle) qdiscModify(cmd, flags int, qdisc Qdisc) error {
 	return err
 }
 
-func qdiscPayload(req *nl.NetlinkRequest, qdisc Qdisc) error {
+func qdiscPayload(req nl.NetlinkRequest, qdisc Qdisc) (nl.NetlinkRequest, error) {
 
 	req.AddData(nl.NewRtAttr(nl.TCA_KIND, nl.ZeroTerminated(qdisc.Type())))
 	if qdisc.Attrs().IngressBlock != nil {
@@ -257,7 +258,7 @@ func qdiscPayload(req *nl.NetlinkRequest, qdisc Qdisc) error {
 	case *Ingress:
 		// ingress filters must use the proper handle
 		if qdisc.Attrs().Parent != HANDLE_INGRESS {
-			return fmt.Errorf("Ingress filters must set Parent to HANDLE_INGRESS")
+			return nl.NetlinkRequest{}, fmt.Errorf("Ingress filters must set Parent to HANDLE_INGRESS")
 		}
 	case *FqCodel:
 		options.AddRtAttr(nl.TCA_FQ_CODEL_ECN, nl.Uint32Attr((uint32(qdisc.ECN))))
@@ -333,7 +334,7 @@ func qdiscPayload(req *nl.NetlinkRequest, qdisc Qdisc) error {
 	if options != nil {
 		req.AddData(options)
 	}
-	return nil
+	return req, nil
 }
 
 // QdiscList gets a list of qdiscs in the system.

@@ -820,7 +820,7 @@ func RouteAdd(route *Route) error {
 func (h *Handle) RouteAdd(route *Route) error {
 	flags := unix.NLM_F_CREATE | unix.NLM_F_EXCL | unix.NLM_F_ACK
 	req := h.newNetlinkRequest(unix.RTM_NEWROUTE, flags)
-	_, err := h.routeHandle(route, req, nl.NewRtMsg())
+	_, err := h.routeHandle(req, route, nl.NewRtMsg())
 	return err
 }
 
@@ -835,7 +835,7 @@ func RouteAppend(route *Route) error {
 func (h *Handle) RouteAppend(route *Route) error {
 	flags := unix.NLM_F_CREATE | unix.NLM_F_APPEND | unix.NLM_F_ACK
 	req := h.newNetlinkRequest(unix.RTM_NEWROUTE, flags)
-	_, err := h.routeHandle(route, req, nl.NewRtMsg())
+	_, err := h.routeHandle(req, route, nl.NewRtMsg())
 	return err
 }
 
@@ -848,7 +848,7 @@ func RouteAddEcmp(route *Route) error {
 func (h *Handle) RouteAddEcmp(route *Route) error {
 	flags := unix.NLM_F_CREATE | unix.NLM_F_ACK
 	req := h.newNetlinkRequest(unix.RTM_NEWROUTE, flags)
-	_, err := h.routeHandle(route, req, nl.NewRtMsg())
+	_, err := h.routeHandle(req, route, nl.NewRtMsg())
 	return err
 }
 
@@ -863,7 +863,7 @@ func RouteChange(route *Route) error {
 func (h *Handle) RouteChange(route *Route) error {
 	flags := unix.NLM_F_REPLACE | unix.NLM_F_ACK
 	req := h.newNetlinkRequest(unix.RTM_NEWROUTE, flags)
-	_, err := h.routeHandle(route, req, nl.NewRtMsg())
+	_, err := h.routeHandle(req, route, nl.NewRtMsg())
 	return err
 }
 
@@ -878,7 +878,7 @@ func RouteReplace(route *Route) error {
 func (h *Handle) RouteReplace(route *Route) error {
 	flags := unix.NLM_F_CREATE | unix.NLM_F_REPLACE | unix.NLM_F_ACK
 	req := h.newNetlinkRequest(unix.RTM_NEWROUTE, flags)
-	_, err := h.routeHandle(route, req, nl.NewRtMsg())
+	_, err := h.routeHandle(req, route, nl.NewRtMsg())
 	return err
 }
 
@@ -892,27 +892,29 @@ func RouteDel(route *Route) error {
 // Equivalent to: `ip route del $route`
 func (h *Handle) RouteDel(route *Route) error {
 	req := h.newNetlinkRequest(unix.RTM_DELROUTE, unix.NLM_F_ACK)
-	_, err := h.routeHandle(route, req, nl.NewRtDelMsg())
+	_, err := h.routeHandle(req, route, nl.NewRtDelMsg())
 	return err
 }
 
-func (h *Handle) routeHandle(route *Route, req *nl.NetlinkRequest, msg *nl.RtMsg) ([][]byte, error) {
-	if err := h.prepareRouteReq(route, req, msg); err != nil {
+func (h *Handle) routeHandle(req nl.NetlinkRequest, route *Route, msg *nl.RtMsg) ([][]byte, error) {
+	var err error
+	if req, err = h.prepareRouteReq(req, route, msg); err != nil {
 		return nil, err
 	}
 	return req.Execute(unix.NETLINK_ROUTE, 0)
 }
 
-func (h *Handle) routeHandleIter(route *Route, req *nl.NetlinkRequest, msg *nl.RtMsg, f func(msg []byte) bool) error {
-	if err := h.prepareRouteReq(route, req, msg); err != nil {
+func (h *Handle) routeHandleIter(req nl.NetlinkRequest, route *Route, msg *nl.RtMsg, f func(msg []byte) bool) error {
+	var err error
+	if req, err = h.prepareRouteReq(req, route, msg); err != nil {
 		return err
 	}
 	return req.ExecuteIter(unix.NETLINK_ROUTE, 0, f)
 }
 
-func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.RtMsg) error {
+func (h *Handle) prepareRouteReq(req nl.NetlinkRequest, route *Route, msg *nl.RtMsg) (nl.NetlinkRequest, error) {
 	if req.NlMsghdr.Type != unix.RTM_GETROUTE && (route.Dst == nil || route.Dst.IP == nil) && route.Src == nil && route.Gw == nil && route.MPLSDst == nil {
-		return fmt.Errorf("either Dst.IP, Src.IP or Gw must be set")
+		return nl.NetlinkRequest{}, fmt.Errorf("either Dst.IP, Src.IP or Gw must be set")
 	}
 
 	family := -1
@@ -939,11 +941,11 @@ func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.R
 
 	if route.NewDst != nil {
 		if family != -1 && family != route.NewDst.Family() {
-			return fmt.Errorf("new destination and destination are not the same address family")
+			return nl.NetlinkRequest{}, fmt.Errorf("new destination and destination are not the same address family")
 		}
 		buf, err := route.NewDst.Encode()
 		if err != nil {
-			return err
+			return nl.NetlinkRequest{}, err
 		}
 		rtAttrs = append(rtAttrs, nl.NewRtAttr(unix.RTA_NEWDST, buf))
 	}
@@ -954,7 +956,7 @@ func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.R
 		rtAttrs = append(rtAttrs, nl.NewRtAttr(unix.RTA_ENCAP_TYPE, buf))
 		buf, err := route.Encap.Encode()
 		if err != nil {
-			return err
+			return nl.NetlinkRequest{}, err
 		}
 		switch route.Encap.Type() {
 		case nl.LWTUNNEL_ENCAP_BPF:
@@ -968,7 +970,7 @@ func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.R
 	if route.Src != nil {
 		srcFamily := nl.GetIPFamily(route.Src)
 		if family != -1 && family != srcFamily {
-			return fmt.Errorf("source and destination ip are not the same IP family")
+			return nl.NetlinkRequest{}, fmt.Errorf("source and destination ip are not the same IP family")
 		}
 		family = srcFamily
 		var srcData []byte
@@ -984,7 +986,7 @@ func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.R
 	if route.Gw != nil {
 		gwFamily := nl.GetIPFamily(route.Gw)
 		if family != -1 && family != gwFamily {
-			return fmt.Errorf("gateway, source, and destination ip are not the same IP family")
+			return nl.NetlinkRequest{}, fmt.Errorf("gateway, source, and destination ip are not the same IP family")
 		}
 		family = gwFamily
 		var gwData []byte
@@ -999,7 +1001,7 @@ func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.R
 	if route.Via != nil {
 		buf, err := route.Via.Encode()
 		if err != nil {
-			return fmt.Errorf("failed to encode RTA_VIA: %v", err)
+			return nl.NetlinkRequest{}, fmt.Errorf("failed to encode RTA_VIA: %v", err)
 		}
 		rtAttrs = append(rtAttrs, nl.NewRtAttr(unix.RTA_VIA, buf))
 	}
@@ -1018,7 +1020,7 @@ func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.R
 			if nh.Gw != nil {
 				gwFamily := nl.GetIPFamily(nh.Gw)
 				if family != -1 && family != gwFamily {
-					return fmt.Errorf("gateway, source, and destination ip are not the same IP family")
+					return nl.NetlinkRequest{}, fmt.Errorf("gateway, source, and destination ip are not the same IP family")
 				}
 				if gwFamily == FAMILY_V4 {
 					children = append(children, nl.NewRtAttr(unix.RTA_GATEWAY, []byte(nh.Gw.To4())))
@@ -1028,11 +1030,11 @@ func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.R
 			}
 			if nh.NewDst != nil {
 				if family != -1 && family != nh.NewDst.Family() {
-					return fmt.Errorf("new destination and destination are not the same address family")
+					return nl.NetlinkRequest{}, fmt.Errorf("new destination and destination are not the same address family")
 				}
 				buf, err := nh.NewDst.Encode()
 				if err != nil {
-					return err
+					return nl.NetlinkRequest{}, err
 				}
 				children = append(children, nl.NewRtAttr(unix.RTA_NEWDST, buf))
 			}
@@ -1042,14 +1044,14 @@ func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.R
 				children = append(children, nl.NewRtAttr(unix.RTA_ENCAP_TYPE, buf))
 				buf, err := nh.Encap.Encode()
 				if err != nil {
-					return err
+					return nl.NetlinkRequest{}, err
 				}
 				children = append(children, nl.NewRtAttr(unix.RTA_ENCAP, buf))
 			}
 			if nh.Via != nil {
 				buf, err := nh.Via.Encode()
 				if err != nil {
-					return err
+					return nl.NetlinkRequest{}, err
 				}
 				children = append(children, nl.NewRtAttr(unix.RTA_VIA, buf))
 			}
@@ -1199,7 +1201,7 @@ func (h *Handle) prepareRouteReq(route *Route, req *nl.NetlinkRequest, msg *nl.R
 		native.PutUint32(b, uint32(route.LinkIndex))
 		req.AddData(nl.NewRtAttr(unix.RTA_OIF, b))
 	}
-	return nil
+	return req, nil
 }
 
 // RouteList gets a list of routes in the system.
@@ -1268,7 +1270,7 @@ func (h *Handle) RouteListFilteredIter(family int, filter *Route, filterMask uin
 	rtmsg.Family = uint8(family)
 
 	var parseErr error
-	executeErr := h.routeHandleIter(filter, req, rtmsg, func(m []byte) bool {
+	executeErr := h.routeHandleIter(req, filter, rtmsg, func(m []byte) bool {
 		msg := nl.DeserializeRtMsg(m)
 		if family != FAMILY_ALL && msg.Family != uint8(family) {
 			// Ignore routes not matching requested family
@@ -1823,7 +1825,7 @@ func routeSubscribeAt(newNs, curNs netns.NsHandle, ch chan<- RouteUpdate, done <
 			unix.NLM_F_DUMP)
 		infmsg := nl.NewIfInfomsg(unix.AF_UNSPEC)
 		req.AddData(infmsg)
-		if err := s.Send(req); err != nil {
+		if err := s.Send(req.Serialize()); err != nil {
 			return err
 		}
 	}

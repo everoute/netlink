@@ -133,16 +133,17 @@ func (h *Handle) classModify(cmd, flags int, class Class) error {
 	}
 	req.AddData(msg)
 
+	var err error
 	if cmd != unix.RTM_DELTCLASS {
-		if err := classPayload(req, class); err != nil {
+		if req, err = classPayload(req, class); err != nil {
 			return err
 		}
 	}
-	_, err := req.Execute(unix.NETLINK_ROUTE, 0)
+	_, err = req.Execute(unix.NETLINK_ROUTE, 0)
 	return err
 }
 
-func classPayload(req *nl.NetlinkRequest, class Class) error {
+func classPayload(req nl.NetlinkRequest, class Class) (nl.NetlinkRequest, error) {
 	req.AddData(nl.NewRtAttr(nl.TCA_KIND, nl.ZeroTerminated(class.Type())))
 
 	options := nl.NewRtAttr(nl.TCA_OPTIONS, nil)
@@ -165,12 +166,12 @@ func classPayload(req *nl.NetlinkRequest, class Class) error {
 		var ctab [256]uint32
 		tcrate := nl.TcRateSpec{Rate: uint32(htb.Rate)}
 		if CalcRtable(&tcrate, rtab[:], cellLog, uint32(mtu), linklayer) < 0 {
-			return errors.New("HTB: failed to calculate rate table")
+			return nl.NetlinkRequest{}, errors.New("HTB: failed to calculate rate table")
 		}
 		opt.Rate = tcrate
 		tcceil := nl.TcRateSpec{Rate: uint32(htb.Ceil)}
 		if CalcRtable(&tcceil, ctab[:], ccellLog, uint32(mtu), linklayer) < 0 {
-			return errors.New("HTB: failed to calculate ceil rate table")
+			return nl.NetlinkRequest{}, errors.New("HTB: failed to calculate ceil rate table")
 		}
 		opt.Ceil = tcceil
 		options.AddRtAttr(nl.TCA_HTB_PARMS, opt.Serialize())
@@ -196,7 +197,7 @@ func classPayload(req *nl.NetlinkRequest, class Class) error {
 		options.AddRtAttr(nl.TCA_HFSC_USC, nl.SerializeHfscCurve(&opt.Usc))
 	}
 	req.AddData(options)
-	return nil
+	return req, nil
 }
 
 // ClassList gets a list of classes in the system.

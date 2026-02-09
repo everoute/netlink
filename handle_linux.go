@@ -185,12 +185,12 @@ func (h *Handle) Delete() {
 	_ = h.Close()
 }
 
-func (h *Handle) newNetlinkRequest(proto, flags int) *nl.NetlinkRequest {
+func (h *Handle) newNetlinkRequest(proto, flags int) nl.NetlinkRequest {
 	// Do this so that package API still use nl package variable nextSeqNr
 	if h.sockets == nil {
 		return nl.NewNetlinkRequest(proto, flags)
 	}
-	return &nl.NetlinkRequest{
+	return nl.NetlinkRequest{
 		NlMsghdr: unix.NlMsghdr{
 			Len:   uint32(unix.SizeofNlMsghdr),
 			Type:  uint16(proto),
