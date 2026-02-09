@@ -577,7 +577,7 @@ func (req *NetlinkRequest) ExecuteIter(sockType int, resType uint16, f func(msg 
 		defer s.Unlock()
 	}
 
-	if err := s.Send(req); err != nil {
+	if err := s.Send(req.Serialize()); err != nil {
 		return err
 	}
 
@@ -684,8 +684,8 @@ func dummyMsgIterFunc(msg []byte) bool {
 // Create a new netlink request from proto and flags
 // Note the Len value will be inaccurate once data is added until
 // the message is serialized
-func NewNetlinkRequest(proto, flags int) *NetlinkRequest {
-	return &NetlinkRequest{
+func NewNetlinkRequest(proto, flags int) NetlinkRequest {
+	return NetlinkRequest{
 		NlMsghdr: unix.NlMsghdr{
 			Len:   uint32(unix.SizeofNlMsghdr),
 			Type:  uint16(proto),
@@ -854,7 +854,7 @@ func (s *NetlinkSocket) GetTimeouts() (send, receive time.Duration) {
 		time.Duration(atomic.LoadInt64(&s.receiveTimeout))
 }
 
-func (s *NetlinkSocket) Send(request *NetlinkRequest) error {
+func (s *NetlinkSocket) Send(serializedReq []byte) error {
 	rawConn, err := s.file.SyscallConn()
 	if err != nil {
 		return err
@@ -870,7 +870,6 @@ func (s *NetlinkSocket) Send(request *NetlinkRequest) error {
 	if err := s.file.SetWriteDeadline(deadline); err != nil {
 		return err
 	}
-	serializedReq := request.Serialize()
 	err = rawConn.Write(func(fd uintptr) (done bool) {
 		innerErr = unix.Sendto(int(s.fd), serializedReq, 0, &s.lsa)
 		return innerErr != unix.EWOULDBLOCK

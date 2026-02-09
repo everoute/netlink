@@ -84,8 +84,7 @@ func executeOneGetRdmaLink(data []byte) (*RdmaLink, error) {
 	return &link, nil
 }
 
-func execRdmaSetLink(req *nl.NetlinkRequest) error {
-
+func execRdmaSetLink(req nl.NetlinkRequest) error {
 	_, err := req.Execute(unix.NETLINK_RDMA, 0)
 	return err
 }

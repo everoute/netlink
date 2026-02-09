@@ -129,7 +129,7 @@ func socketDiagXDPExecutor(receiver func(syscall.NetlinkMessage) error) error {
 		Family: unix.AF_XDP,
 		Show:   XDP_SHOW_INFO | XDP_SHOW_RING_CFG | XDP_SHOW_UMEM | XDP_SHOW_STATS,
 	})
-	if err := s.Send(req); err != nil {
+	if err := s.Send(req.Serialize()); err != nil {
 		return err
 	}
 

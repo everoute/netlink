@@ -31,7 +31,7 @@ func AddrAdd(link Link, addr *Addr) error {
 // If `net.IPv4zero` is given as the broadcast address, broadcast is disabled.
 func (h *Handle) AddrAdd(link Link, addr *Addr) error {
 	req := h.newNetlinkRequest(unix.RTM_NEWADDR, unix.NLM_F_CREATE|unix.NLM_F_EXCL|unix.NLM_F_ACK)
-	return h.addrHandle(link, addr, req)
+	return h.addrHandle(req, link, addr)
 }
 
 // AddrReplace will replace (or, if not present, add) an IP address on a link device.
@@ -54,7 +54,7 @@ func AddrReplace(link Link, addr *Addr) error {
 // If `net.IPv4zero` is given as the broadcast address, broadcast is disabled.
 func (h *Handle) AddrReplace(link Link, addr *Addr) error {
 	req := h.newNetlinkRequest(unix.RTM_NEWADDR, unix.NLM_F_CREATE|unix.NLM_F_REPLACE|unix.NLM_F_ACK)
-	return h.addrHandle(link, addr, req)
+	return h.addrHandle(req, link, addr)
 }
 
 // AddrDel will delete an IP address from a link device.
@@ -69,10 +69,10 @@ func AddrDel(link Link, addr *Addr) error {
 // Equivalent to: `ip addr del $addr dev $link`
 func (h *Handle) AddrDel(link Link, addr *Addr) error {
 	req := h.newNetlinkRequest(unix.RTM_DELADDR, unix.NLM_F_ACK)
-	return h.addrHandle(link, addr, req)
+	return h.addrHandle(req, link, addr)
 }
 
-func (h *Handle) addrHandle(link Link, addr *Addr, req *nl.NetlinkRequest) error {
+func (h *Handle) addrHandle(req nl.NetlinkRequest, link Link, addr *Addr) error {
 	family := nl.GetIPFamily(addr.IP)
 	msg := nl.NewIfAddrmsg(family)
 	msg.Scope = uint8(addr.Scope)
@@ -364,7 +364,7 @@ func addrSubscribeAt(newNs, curNs netns.NsHandle, ch chan<- AddrUpdate, done <-c
 			unix.NLM_F_DUMP)
 		infmsg := nl.NewIfInfomsg(unix.AF_UNSPEC)
 		req.AddData(infmsg)
-		if err := s.Send(req); err != nil {
+		if err := s.Send(req.Serialize()); err != nil {
 			return err
 		}
 	}

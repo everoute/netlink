@@ -19,10 +19,11 @@ func NexthopAdd(nh *Nexthop) error {
 func (h *Handle) NexthopAdd(nh *Nexthop) error {
 	flags := unix.NLM_F_CREATE | unix.NLM_F_EXCL | unix.NLM_F_ACK
 	req := h.newNetlinkRequest(unix.RTM_NEWNEXTHOP, flags)
-	if err := prepareNewNexthop(nh, req, &nl.Nhmsg{}); err != nil {
+	var err error
+	if req, err = prepareNewNexthop(req, nh, &nl.Nhmsg{}); err != nil {
 		return err
 	}
-	_, err := req.Execute(unix.NETLINK_ROUTE, 0)
+	_, err = req.Execute(unix.NETLINK_ROUTE, 0)
 	return err
 }
 
@@ -37,10 +38,11 @@ func NexthopReplace(nh *Nexthop) error {
 func (h *Handle) NexthopReplace(nh *Nexthop) error {
 	flags := unix.NLM_F_CREATE | unix.NLM_F_REPLACE | unix.NLM_F_ACK
 	req := h.newNetlinkRequest(unix.RTM_NEWNEXTHOP, flags)
-	if err := prepareNewNexthop(nh, req, &nl.Nhmsg{}); err != nil {
+	var err error
+	if req, err = prepareNewNexthop(req, nh, &nl.Nhmsg{}); err != nil {
 		return err
 	}
-	_, err := req.Execute(unix.NETLINK_ROUTE, 0)
+	_, err = req.Execute(unix.NETLINK_ROUTE, 0)
 	return err
 }
 
@@ -54,10 +56,11 @@ func NexthopDel(nh *Nexthop) error {
 // Equivalent to: `ip nexthop del $nexthop`
 func (h *Handle) NexthopDel(nh *Nexthop) error {
 	req := h.newNetlinkRequest(unix.RTM_DELNEXTHOP, unix.NLM_F_ACK)
-	if err := prepareDelNexthop(nh, req, &nl.Nhmsg{}); err != nil {
+	var err error
+	if req, err = prepareDelNexthop(req, nh, &nl.Nhmsg{}); err != nil {
 		return err
 	}
-	_, err := req.Execute(unix.NETLINK_ROUTE, 0)
+	_, err = req.Execute(unix.NETLINK_ROUTE, 0)
 	return err
 }
 
@@ -239,7 +242,7 @@ func deriveFamilyFromNexthop(nh *Nexthop) uint8 {
 	return FAMILY_V6
 }
 
-func prepareNewNexthop(nh *Nexthop, req *nl.NetlinkRequest, msg *nl.Nhmsg) error {
+func prepareNewNexthop(req nl.NetlinkRequest, nh *Nexthop, msg *nl.Nhmsg) (nl.NetlinkRequest, error) {
 	var rtAttrs []*nl.RtAttr
 
 	// We can find the supported attributes from the kernel source code:
@@ -265,10 +268,10 @@ func prepareNewNexthop(nh *Nexthop, req *nl.NetlinkRequest, msg *nl.Nhmsg) error
 		req.AddData(attr)
 	}
 
-	return nil
+	return req, nil
 }
 
-func prepareDelNexthop(nh *Nexthop, req *nl.NetlinkRequest, msg *nl.Nhmsg) error {
+func prepareDelNexthop(req nl.NetlinkRequest, nh *Nexthop, msg *nl.Nhmsg) (nl.NetlinkRequest, error) {
 	// We can find the supported attributes from the kernel source code:
 	// https://github.com/torvalds/linux/blob/e53642b87a4f4b03a8d7e5f8507fc3cd0c595ea6/net/ipv4/nexthop.c#L52
 	rtAttrs := encodeNexthopAttrs(nh, []uint16{
@@ -282,5 +285,5 @@ func prepareDelNexthop(nh *Nexthop, req *nl.NetlinkRequest, msg *nl.Nhmsg) error
 		req.AddData(attr)
 	}
 
-	return nil
+	return req, nil
 }

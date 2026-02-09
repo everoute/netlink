@@ -369,7 +369,7 @@ func (h *Handle) IpsetTest(setname string, entry *IPSetEntry) (bool, error) {
 	return true, nil
 }
 
-func (h *Handle) newIpsetRequest(cmd int) *nl.NetlinkRequest {
+func (h *Handle) newIpsetRequest(cmd int) nl.NetlinkRequest {
 	req := h.newNetlinkRequest(cmd|(unix.NFNL_SUBSYS_IPSET<<8), nl.GetIpsetFlags(cmd))
 
 	// Add the netfilter header
@@ -470,7 +470,7 @@ func getIpsetDefaultRevision(typename string, featureFlags uint32) uint8 {
 	return 0
 }
 
-func ipsetExecute(req *nl.NetlinkRequest) (msgs [][]byte, err error) {
+func ipsetExecute(req nl.NetlinkRequest) (msgs [][]byte, err error) {
 	msgs, err = req.Execute(unix.NETLINK_NETFILTER, 0)
 
 	if err != nil {

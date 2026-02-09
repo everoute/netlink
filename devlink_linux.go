@@ -523,10 +523,10 @@ func parseDevlinkDevice(msgs [][]byte) (*DevlinkDevice, error) {
 	return dev, nil
 }
 
-func (h *Handle) createCmdReq(cmd uint8, bus string, device string) (*GenlFamily, *nl.NetlinkRequest, error) {
+func (h *Handle) createCmdReq(cmd uint8, bus string, device string) (*GenlFamily, nl.NetlinkRequest, error) {
 	f, err := h.GenlFamilyGet(nl.GENL_DEVLINK_NAME)
 	if err != nil {
-		return nil, nil, err
+		return nil, nl.NetlinkRequest{}, err
 	}
 
 	msg := &nl.Genlmsg{
@@ -858,7 +858,7 @@ func (h *Handle) DevlinkSplitPort(port *DevlinkPort, count uint32) error {
 }
 
 func DevlinkSplitPort(port *DevlinkPort, count uint32) error {
-	return pkgHandle.DevlinkSplitPort(port, count);
+	return pkgHandle.DevlinkSplitPort(port, count)
 }
 
 // DevlinkUnsplitPort: unsplit devlink port
@@ -876,7 +876,7 @@ func (h *Handle) DevlinkUnsplitPort(port *DevlinkPort) error {
 }
 
 func DevlinkUnsplitPort(port *DevlinkPort) error {
-	return pkgHandle.DevlinkUnsplitPort(port);
+	return pkgHandle.DevlinkUnsplitPort(port)
 }
 
 // DevlinkSetDeviceParam set specific parameter for devlink device
