@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"time"
@@ -378,20 +379,22 @@ func (t *IPTuple) toNlData(family uint8) ([]*nl.RtAttr, error) {
 }
 
 type ConntrackFlow struct {
-	FamilyType uint8
-	Forward    IPTuple
-	Reverse    IPTuple
-	Mark       uint32
-	Zone       uint16
-	TimeStart  uint64
-	TimeStop   uint64
-	TimeOut    uint32
-	Status     uint32
-	Use        uint32
-	ID         uint32
-	Labels     []byte
-	LabelsMask []byte
-	ProtoInfo  ProtoInfo
+	FamilyType    uint8
+	Forward       IPTuple
+	Reverse       IPTuple
+	Mark          uint32
+	Zone          uint16
+	TimeStart     uint64
+	TimeStop      uint64
+	TimeOut       uint32
+	Status        uint32
+	Use           uint32
+	ID            uint32
+	Labels        [16]byte
+	HasLabels     bool
+	LabelsMask    [16]byte
+	HasLabelsMask bool
+	ProtoInfo     ProtoInfo
 }
 
 func (s *ConntrackFlow) String() string {
@@ -415,10 +418,10 @@ func (s *ConntrackFlow) String() string {
 			s.Reverse.SrcIP.String(), s.Reverse.DstIP.String(), s.Reverse.SrcPort, s.Reverse.DstPort, s.Reverse.Packets, s.Reverse.Bytes)
 	}
 	out += fmt.Sprintf(" mark=0x%x", s.Mark)
-	if len(s.Labels) > 0 {
+	if s.HasLabels {
 		out += fmt.Sprintf(" labels=0x%x", s.Labels)
 	}
-	if len(s.LabelsMask) > 0 {
+	if s.HasLabelsMask {
 		out += fmt.Sprintf("/0x%x", s.LabelsMask)
 	}
 	if s.Status != 0 {
@@ -506,19 +509,13 @@ func (s *ConntrackFlow) toNlData() ([]*nl.RtAttr, error) {
 	payload = append(payload, ctZone)
 	ctStatus := nl.NewRtAttr(nl.CTA_STATUS, nl.BEUint32Attr(s.Status))
 	payload = append(payload, ctStatus)
-	// Labels: nil => do not send; 16 zero bytes => update conntrack labels.
-	if s.Labels != nil {
-		if len(s.Labels) != 16 {
-			return nil, fmt.Errorf("conntrack CTA_LABELS must be 16 bytes, got %d", len(s.Labels))
-		}
-		ctLabels := nl.NewRtAttr(nl.CTA_LABELS, s.Labels)
+	// Labels: HasLabels => update conntrack labels; else => do not send.
+	if s.HasLabels {
+		ctLabels := nl.NewRtAttr(nl.CTA_LABELS, s.Labels[:])
 		payload = append(payload, ctLabels)
-		// Labels Mask: nil => do not send; 16 zero bytes => update conntrack labels with mask.
-		if s.LabelsMask != nil {
-			if len(s.LabelsMask) != 16 {
-				return nil, fmt.Errorf("conntrack CTA_LABELS_MASK must be 16 bytes, got %d", len(s.LabelsMask))
-			}
-			ctLabelsMask := nl.NewRtAttr(nl.CTA_LABELS_MASK, s.LabelsMask)
+		// Labels Mask: HasLabelsMask => update conntrack labels with mask; else => do not send.
+		if s.HasLabelsMask {
+			ctLabelsMask := nl.NewRtAttr(nl.CTA_LABELS_MASK, s.LabelsMask[:])
 			payload = append(payload, ctLabelsMask)
 		}
 	}
@@ -584,26 +581,26 @@ func parseIpTuple(reader *bytes.Reader, tpl *IPTuple) uint8 {
 		protoInfoBytesRead += uint16(nl.SizeofNfattr)
 		switch t {
 		case nl.CTA_PROTO_SRC_PORT:
-			parseBERaw16(reader, &tpl.SrcPort)
+			tpl.SrcPort = parseBERaw16(reader)
 			protoInfoBytesRead += 2
 		case nl.CTA_PROTO_DST_PORT:
-			parseBERaw16(reader, &tpl.DstPort)
+			tpl.DstPort = parseBERaw16(reader)
 			protoInfoBytesRead += 2
 		case nl.CTA_PROTO_ICMP_ID:
 			fallthrough
 		case nl.CTA_PROTO_ICMPV6_ID:
-			parseBERaw16(reader, &tpl.ICMPID)
+			tpl.ICMPID = parseBERaw16(reader)
 			protoInfoBytesRead += 2
 		case nl.CTA_PROTO_ICMP_CODE:
 			fallthrough
 		case nl.CTA_PROTO_ICMPV6_CODE:
-			parseU8(reader, &tpl.ICMPCode)
+			tpl.ICMPCode = parseU8(reader)
 			protoInfoBytesRead += 1
 			ICMPCodeDone = true
 		case nl.CTA_PROTO_ICMP_TYPE:
 			fallthrough
 		case nl.CTA_PROTO_ICMPV6_TYPE:
-			parseU8(reader, &tpl.ICMPType)
+			tpl.ICMPType = parseU8(reader)
 			protoInfoBytesRead += 1
 			ICMPTypeDone = true
 		}
@@ -625,15 +622,15 @@ func parseNfAttrTLV(r *bytes.Reader) (isNested bool, attrType, len uint16, value
 	isNested, attrType, len = parseNfAttrTL(r)
 
 	value = make([]byte, len)
-	binary.Read(r, binary.BigEndian, &value)
+	io.ReadAtLeast(r, value, int(len))
 	return isNested, attrType, len, value
 }
 
 func parseNfAttrTL(r *bytes.Reader) (isNested bool, attrType, len uint16) {
-	binary.Read(r, nl.NativeEndian(), &len)
+	len = parseRaw16(r)
 	len -= nl.SizeofNfattr
 
-	binary.Read(r, nl.NativeEndian(), &attrType)
+	attrType = parseRaw16(r)
 	isNested = (attrType & nl.NLA_F_NESTED) == nl.NLA_F_NESTED
 	attrType = attrType & (nl.NLA_F_NESTED - 1)
 	return isNested, attrType, len
@@ -648,33 +645,42 @@ func skipNfAttrValue(r *bytes.Reader, len uint16) uint16 {
 	return len
 }
 
-func parseU8(r *bytes.Reader, v *uint8) {
-	binary.Read(r, binary.BigEndian, v)
+func parseU8(r *bytes.Reader) uint8 {
+	b, _ := r.ReadByte()
+	return b
 }
 
-func parseBERaw16(r *bytes.Reader, v *uint16) {
-	binary.Read(r, binary.BigEndian, v)
+func parseBERaw16(r *bytes.Reader) uint16 {
+	var buf [2]byte
+	io.ReadAtLeast(r, buf[:], 2)
+	return binary.BigEndian.Uint16(buf[:])
 }
 
-func parseBERaw32(r *bytes.Reader, v *uint32) {
-	binary.Read(r, binary.BigEndian, v)
+func parseBERaw32(r *bytes.Reader) uint32 {
+	var buf [4]byte
+	io.ReadAtLeast(r, buf[:], 4)
+	return binary.BigEndian.Uint32(buf[:])
 }
 
-func parseBERaw64(r *bytes.Reader, v *uint64) {
-	binary.Read(r, binary.BigEndian, v)
+func parseBERaw64(r *bytes.Reader) uint64 {
+	var buf [8]byte
+	io.ReadAtLeast(r, buf[:], 8)
+	return binary.BigEndian.Uint64(buf[:])
 }
 
-func parseRaw32(r *bytes.Reader, v *uint32) {
-	binary.Read(r, nl.NativeEndian(), v)
+func parseRaw16(r *bytes.Reader) uint16 {
+	var buf [2]byte
+	io.ReadAtLeast(r, buf[:], 2)
+	return binary.BigEndian.Uint16(buf[:])
 }
 
 func parseByteAndPacketCounters(r *bytes.Reader) (bytes, packets uint64) {
 	for i := 0; i < 2; i++ {
 		switch _, t, _ := parseNfAttrTL(r); t {
 		case nl.CTA_COUNTERS_BYTES:
-			parseBERaw64(r, &bytes)
+			bytes = parseBERaw64(r)
 		case nl.CTA_COUNTERS_PACKETS:
-			parseBERaw64(r, &packets)
+			packets = parseBERaw64(r)
 		default:
 			return
 		}
@@ -696,9 +702,9 @@ func parseTimeStamp(r *bytes.Reader, readSize uint16) (tstart, tstop uint64) {
 	for i := 0; i < numTimeStamps; i++ {
 		switch _, t, _ := parseNfAttrTL(r); t {
 		case nl.CTA_TIMESTAMP_START:
-			parseBERaw64(r, &tstart)
+			tstart = parseBERaw64(r)
 		case nl.CTA_TIMESTAMP_STOP:
-			parseBERaw64(r, &tstop)
+			tstop = parseBERaw64(r)
 		default:
 			return
 		}
@@ -708,7 +714,7 @@ func parseTimeStamp(r *bytes.Reader, readSize uint16) (tstart, tstop uint64) {
 }
 
 func parseProtoInfoTCPState(r *bytes.Reader) (s uint8) {
-	binary.Read(r, binary.BigEndian, &s)
+	s, _ = r.ReadByte()
 	r.Seek(nl.SizeofNfattr-1, seekCurrent)
 	return s
 }
@@ -726,19 +732,19 @@ func parseProtoInfoTCP(r *bytes.Reader, attrLen uint16) *ProtoInfoTCP {
 			p.State = parseProtoInfoTCPState(r)
 			bytesRead += nl.SizeofNfattr
 		case nl.CTA_PROTOINFO_TCP_WSCALE_ORIGINAL:
-			parseU8(r, &p.WsacleOriginal)
+			p.WsacleOriginal = parseU8(r)
 			r.Seek(nl.SizeofNfattr-1, seekCurrent)
 			bytesRead += nl.SizeofNfattr
 		case nl.CTA_PROTOINFO_TCP_WSCALE_REPLY:
-			parseU8(r, &p.WsacleReply)
+			p.WsacleReply = parseU8(r)
 			r.Seek(nl.SizeofNfattr-1, seekCurrent)
 			bytesRead += nl.SizeofNfattr
 		case nl.CTA_PROTOINFO_TCP_FLAGS_ORIGINAL:
-			parseBERaw16(r, &p.FlagsOriginal)
+			p.FlagsOriginal = parseBERaw16(r)
 			r.Seek(nl.SizeofNfattr-2, seekCurrent)
 			bytesRead += nl.SizeofNfattr
 		case nl.CTA_PROTOINFO_TCP_FLAGS_REPLY:
-			parseBERaw16(r, &p.FlagsReply)
+			p.FlagsReply = parseBERaw16(r)
 			r.Seek(nl.SizeofNfattr-2, seekCurrent)
 			bytesRead += nl.SizeofNfattr
 		default:
@@ -778,23 +784,22 @@ func parseProtoInfo(r *bytes.Reader, attrLen uint16) (p ProtoInfo) {
 }
 
 func parseTimeOut(r *bytes.Reader) (ttimeout uint32) {
-	parseBERaw32(r, &ttimeout)
+	ttimeout = parseBERaw32(r)
 	return
 }
 
 func parseConnectionMark(r *bytes.Reader) (mark uint32) {
-	parseBERaw32(r, &mark)
+	mark = parseBERaw32(r)
 	return
 }
 
-func parseConnectionLabels(r *bytes.Reader) (label []byte) {
-	label = make([]byte, 16) // netfilter defines 128 bit labels value
-	binary.Read(r, nl.NativeEndian(), &label)
+func parseConnectionLabels(r *bytes.Reader) (label [16]byte) {
+	r.Read(label[:])
 	return
 }
 
 func parseConnectionZone(r *bytes.Reader) (zone uint16) {
-	parseBERaw16(r, &zone)
+	zone = parseBERaw16(r)
 	r.Seek(2, seekCurrent)
 	return
 }
@@ -809,7 +814,7 @@ func parseRawData(data []byte, allocator func() *ConntrackFlow) *ConntrackFlow {
 	// First there is the Nfgenmsg header
 	// consume only the family field
 	reader := bytes.NewReader(data)
-	binary.Read(reader, nl.NativeEndian(), &s.FamilyType)
+	s.FamilyType = parseU8(reader)
 
 	// skip rest of the Netfilter header
 	reader.Seek(3, seekCurrent)
@@ -853,16 +858,18 @@ func parseRawData(data []byte, allocator func() *ConntrackFlow) *ConntrackFlow {
 				s.Zone = parseConnectionZone(reader)
 			case nl.CTA_LABELS:
 				s.Labels = parseConnectionLabels(reader)
+				s.HasLabels = true
 			case nl.CTA_LABELS_MASK:
 				s.LabelsMask = parseConnectionLabels(reader)
+				s.HasLabelsMask = true
 			case nl.CTA_TIMEOUT:
 				s.TimeOut = parseTimeOut(reader)
 			case nl.CTA_STATUS:
-				parseBERaw32(reader, &s.Status)
+				s.Status = parseBERaw32(reader)
 			case nl.CTA_USE:
-				parseBERaw32(reader, &s.Use)
+				s.Use = parseBERaw32(reader)
 			case nl.CTA_ID:
-				parseBERaw32(reader, &s.ID)
+				s.ID = parseBERaw32(reader)
 			default:
 				skipNfAttrValue(reader, l)
 			}
@@ -931,7 +938,7 @@ type ConntrackFilter struct {
 	ipNetFilter map[ConntrackFilterType]*net.IPNet
 	portFilter  map[ConntrackFilterType]uint16
 	protoFilter uint8
-	labelFilter map[ConntrackFilterType][][]byte
+	labelFilter map[ConntrackFilterType][][16]byte
 	zoneFilter  *uint16
 }
 
@@ -996,12 +1003,12 @@ func (f *ConntrackFilter) AddProtocol(proto uint8) error {
 //     against the list of provided labels. If `flow.Labels` does NOT contain ALL the provided labels
 //     it is considered a match. This can be used when you want to match flows that don't contain
 //     one or more labels.
-func (f *ConntrackFilter) AddLabels(tp ConntrackFilterType, labels [][]byte) error {
+func (f *ConntrackFilter) AddLabels(tp ConntrackFilterType, labels [][16]byte) error {
 	if len(labels) == 0 {
 		return errors.New("Invalid length for provided labels")
 	}
 	if f.labelFilter == nil {
-		f.labelFilter = make(map[ConntrackFilterType][][]byte)
+		f.labelFilter = make(map[ConntrackFilterType][][16]byte)
 	}
 	if _, ok := f.labelFilter[tp]; ok {
 		return errors.New("Filter attribute already present")
@@ -1083,19 +1090,19 @@ func (f *ConntrackFilter) MatchConntrackFlow(flow *ConntrackFlow) bool {
 
 	// Label filter
 	if len(f.labelFilter) > 0 {
-		if len(flow.Labels) > 0 {
+		if flow.HasLabels {
 			// --label label1,label2 in conn entry;
 			// every label passed should be contained in flow.Labels for a match to be true
 			if elem, found := f.labelFilter[ConntrackMatchLabels]; match && found {
 				for _, label := range elem {
-					match = match && (bytes.Contains(flow.Labels, label))
+					match = match && (bytes.Contains(flow.Labels[:], label[:]))
 				}
 			}
 			// --label label1,label2 in conn entry;
 			// every label passed should be not contained in flow.Labels for a match to be true
 			if elem, found := f.labelFilter[ConntrackUnmatchLabels]; match && found {
 				for _, label := range elem {
-					match = match && !(bytes.Contains(flow.Labels, label))
+					match = match && !(bytes.Contains(flow.Labels[:], label[:]))
 				}
 			}
 		} else {

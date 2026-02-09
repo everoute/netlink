@@ -451,8 +451,9 @@ func TestConntrackFilter(t *testing.T) {
 				DstPort:  5000,
 				Protocol: 6,
 			},
-			Labels: []byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
-			Zone:   200,
+			Labels:    [16]byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
+			HasLabels: true,
+			Zone:      200,
 		},
 		ConntrackFlow{
 			FamilyType: unix.AF_INET6,
@@ -809,9 +810,9 @@ func TestConntrackFilter(t *testing.T) {
 
 	// Labels filter
 	filterV4 = &ConntrackFilter{}
-	var labels [][]byte
-	labels = append(labels, []byte{3, 4, 61, 141, 207, 170})
-	labels = append(labels, []byte{0x2})
+	var labels [][16]byte
+	labels = append(labels, [16]byte{3, 4, 61, 141, 207, 170, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	labels = append(labels, [16]byte{0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0})
 	err = filterV4.AddLabels(ConntrackMatchLabels, labels)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -1562,9 +1563,10 @@ func TestConntrackLabels(t *testing.T) {
 		},
 		// No point checking equivalence of timeout, but value must
 		// be reasonable to allow for a potentially slow subsequent read.
-		TimeOut: 100,
-		Mark:    12,
-		Labels:  []byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
+		TimeOut:   100,
+		Mark:      12,
+		Labels:    [16]byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
+		HasLabels: true,
 		ProtoInfo: &ProtoInfoTCP{
 			State: nl.TCP_CONNTRACK_SYN_SENT2,
 		},
@@ -1617,7 +1619,7 @@ func TestConntrackLabels(t *testing.T) {
 
 	// Change the conntrack and update the kernel entry.
 	flow.Mark = 10
-	flow.Labels = make([]byte, 16) // zero labels
+	flow.Labels = [16]byte{} // zero labels
 	flow.ProtoInfo = &ProtoInfoTCP{
 		State: nl.TCP_CONNTRACK_ESTABLISHED,
 	}
@@ -1647,7 +1649,7 @@ func TestConntrackLabels(t *testing.T) {
 
 	// To clear the labels we send an empty slice, but when reading back
 	// from the kernel we get a nil slice.
-	flow.Labels = nil
+	flow.Labels = [16]byte{}
 	checkFlowsEqual(t, &flow, updatedMatch)
 	checkProtoInfosEqual(t, flow.ProtoInfo, updatedMatch.ProtoInfo)
 	// Switch back to the original namespace
@@ -1673,9 +1675,10 @@ func TestConntrackFlowToNlData(t *testing.T) {
 			DstPort:  48385,
 			Protocol: unix.IPPROTO_TCP,
 		},
-		Mark:    5,
-		Labels:  []byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
-		TimeOut: 10,
+		Mark:      5,
+		Labels:    [16]byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
+		HasLabels: true,
+		TimeOut:   10,
 		ProtoInfo: &ProtoInfoTCP{
 			State: nl.TCP_CONNTRACK_ESTABLISHED,
 		},
@@ -1696,9 +1699,10 @@ func TestConntrackFlowToNlData(t *testing.T) {
 			DstPort:  48385,
 			Protocol: unix.IPPROTO_TCP,
 		},
-		Mark:    5,
-		Labels:  []byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
-		TimeOut: 10,
+		Mark:      5,
+		Labels:    [16]byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
+		HasLabels: true,
+		TimeOut:   10,
 		ProtoInfo: &ProtoInfoTCP{
 			State: nl.TCP_CONNTRACK_ESTABLISHED,
 		},
@@ -1755,7 +1759,7 @@ func checkFlowsEqual(t *testing.T, f1, f2 *ConntrackFlow) {
 		t.Fail()
 	}
 
-	if !bytes.Equal(f1.Labels, f2.Labels) {
+	if !bytes.Equal(f1.Labels[:], f2.Labels[:]) {
 		t.Logf("Conntrack flow Labels differ. Tuple1: %+v, Tuple2: %+v.\n", f1.Labels, f2.Labels)
 		t.Fail()
 	}
