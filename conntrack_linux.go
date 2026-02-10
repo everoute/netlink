@@ -622,7 +622,13 @@ func parseNfAttrTLV(r *bytes.Reader) (isNested bool, attrType, len uint16, value
 	isNested, attrType, len = parseNfAttrTL(r)
 
 	value = make([]byte, len)
-	io.ReadAtLeast(r, value, int(len))
+	n, err := io.ReadAtLeast(r, value, int(len))
+	if err != nil {
+		panic(err)
+	}
+	if n != int(len) {
+		panic(fmt.Errorf("expected %d bytes for nfattr value, got %d", len, n))
+	}
 	return isNested, attrType, len, value
 }
 
@@ -646,31 +652,58 @@ func skipNfAttrValue(r *bytes.Reader, len uint16) uint16 {
 }
 
 func parseU8(r *bytes.Reader) uint8 {
-	b, _ := r.ReadByte()
+	b, err := r.ReadByte()
+	if err != nil {
+		panic(err)
+	}
 	return b
 }
 
 func parseBERaw16(r *bytes.Reader) uint16 {
 	var buf [2]byte
-	io.ReadAtLeast(r, buf[:], 2)
+	n, err := io.ReadAtLeast(r, buf[:], 2)
+	if err != nil {
+		panic(err)
+	}
+	if n != 2 {
+		panic(fmt.Errorf("expected 2 bytes for uint16, got %d", n))
+	}
 	return binary.BigEndian.Uint16(buf[:])
 }
 
 func parseBERaw32(r *bytes.Reader) uint32 {
 	var buf [4]byte
-	io.ReadAtLeast(r, buf[:], 4)
+	n, err := io.ReadAtLeast(r, buf[:], 4)
+	if err != nil {
+		panic(err)
+	}
+	if n != 4 {
+		panic(fmt.Errorf("expected 4 bytes for uint32, got %d", n))
+	}
 	return binary.BigEndian.Uint32(buf[:])
 }
 
 func parseBERaw64(r *bytes.Reader) uint64 {
 	var buf [8]byte
-	io.ReadAtLeast(r, buf[:], 8)
+	n, err := io.ReadAtLeast(r, buf[:], 8)
+	if err != nil {
+		panic(err)
+	}
+	if n != 8 {
+		panic(fmt.Errorf("expected 8 bytes for uint64, got %d", n))
+	}
 	return binary.BigEndian.Uint64(buf[:])
 }
 
 func parseRaw16(r *bytes.Reader) uint16 {
 	var buf [2]byte
-	io.ReadAtLeast(r, buf[:], 2)
+	n, err := io.ReadAtLeast(r, buf[:], 2)
+	if err != nil {
+		panic(err)
+	}
+	if n != 2 {
+		panic(fmt.Errorf("expected 2 bytes for uint16, got %d", n))
+	}
 	return binary.BigEndian.Uint16(buf[:])
 }
 
