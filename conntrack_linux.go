@@ -43,13 +43,14 @@ type InetFamily uint8
 //  -C [table]                    Show counter
 //  -S                            Show statistics
 
-// ConntrackTableList returns the flow list of a table of a specific family
+// ConntrackTableList returns the flow list of a table of a specific family.
+// It pre-allocates a single []ConntrackFlow slice and reuses it to avoid per-flow allocations.
 // conntrack -L [table] [options]          List conntrack or expectation table
 //
 // If the returned error is [ErrDumpInterrupted], results may be inconsistent
 // or incomplete.
-func ConntrackTableList(table ConntrackTableType, family InetFamily, allocator func() *ConntrackFlow) ([]*ConntrackFlow, error) {
-	return pkgHandle.ConntrackTableList(table, family, allocator)
+func ConntrackTableList(table ConntrackTableType, family InetFamily) ([]*ConntrackFlow, error) {
+	return pkgHandle.ConntrackTableList(table, family)
 }
 
 // ConntrackTableFlush flushes all the flows of a specified table
@@ -89,21 +90,28 @@ func ConntrackTableListStream(table ConntrackTableType, family InetFamily, handl
 	return pkgHandle.ConntrackTableListStream(table, family, handle, allocator)
 }
 
-// ConntrackTableList returns the flow list of a table of a specific family using the netlink handle passed
+// ConntrackTableList returns the flow list of a table of a specific family using the netlink handle passed.
+// It pre-allocates a single []ConntrackFlow slice and reuses elements to avoid per-flow allocations.
 // conntrack -L [table] [options]          List conntrack or expectation table
 //
 // If the returned error is [ErrDumpInterrupted], results may be inconsistent
 // or incomplete.
-func (h *Handle) ConntrackTableList(table ConntrackTableType, family InetFamily, allocator func() *ConntrackFlow) ([]*ConntrackFlow, error) {
+func (h *Handle) ConntrackTableList(table ConntrackTableType, family InetFamily) ([]*ConntrackFlow, error) {
 	res, executeErr := h.dumpConntrackTable(table, family)
 	if executeErr != nil && !errors.Is(executeErr, ErrDumpInterrupted) {
 		return nil, executeErr
 	}
 
-	// Deserialize all the flows
-	var result []*ConntrackFlow
-	for _, dataRaw := range res {
-		result = append(result, parseRawData(dataRaw, allocator))
+	flows := make([]ConntrackFlow, len(res))
+	result := make([]*ConntrackFlow, len(res))
+	i := 0
+	allocator := func() *ConntrackFlow {
+		p := &flows[i]
+		i++
+		return p
+	}
+	for j := range res {
+		result[j] = parseRawData(res[j], allocator)
 	}
 
 	return result, executeErr
