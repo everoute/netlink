@@ -279,3 +279,8 @@ func DeserializeNfgenmsg(b []byte) *Nfgenmsg {
 func (msg *Nfgenmsg) Serialize() []byte {
 	return (*(*[SizeofNfgenmsg]byte)(unsafe.Pointer(msg)))[:]
 }
+
+func (msg *Nfgenmsg) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofNfgenmsg], msg.Serialize())
+	return SizeofNfgenmsg
+}

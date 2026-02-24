@@ -84,6 +84,12 @@ func (msg *Ndmsg) Len() int {
 	return int(unsafe.Sizeof(*msg))
 }
 
+func (msg *Ndmsg) SerializeTo(buf []byte) int {
+	len := int(unsafe.Sizeof(*msg))
+	copy(buf[0:len], msg.Serialize())
+	return len
+}
+
 // NeighAdd will add an IP to MAC mapping to the ARP table
 // Equivalent to: `ip neigh add ....`
 func NeighAdd(neigh *Neigh) error {

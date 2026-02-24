@@ -47,6 +47,11 @@ func (msg *IfAddrmsg) Len() int {
 	return unix.SizeofIfAddrmsg
 }
 
+func (msg *IfAddrmsg) SerializeTo(buf []byte) int {
+	copy(buf[0:unix.SizeofIfAddrmsg], msg.Serialize())
+	return unix.SizeofIfAddrmsg
+}
+
 // struct ifa_cacheinfo {
 // 	__u32	ifa_prefered;
 // 	__u32	ifa_valid;
@@ -68,4 +73,9 @@ func DeserializeIfaCacheInfo(b []byte) *IfaCacheInfo {
 
 func (msg *IfaCacheInfo) Serialize() []byte {
 	return (*(*[unix.SizeofIfaCacheinfo]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *IfaCacheInfo) SerializeTo(buf []byte) int {
+	copy(buf[0:unix.SizeofIfaCacheinfo], msg.Serialize())
+	return unix.SizeofIfaCacheinfo
 }

@@ -214,6 +214,11 @@ func (msg *XfrmSelector) Serialize() []byte {
 	return (*(*[SizeofXfrmSelector]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *XfrmSelector) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmSelector], msg.Serialize())
+	return SizeofXfrmSelector
+}
+
 // struct xfrm_lifetime_cfg {
 //   __u64 soft_byte_limit;
 //   __u64 hard_byte_limit;
@@ -249,6 +254,11 @@ func (msg *XfrmLifetimeCfg) Serialize() []byte {
 	return (*(*[SizeofXfrmLifetimeCfg]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *XfrmLifetimeCfg) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmLifetimeCfg], msg.Serialize())
+	return SizeofXfrmLifetimeCfg
+}
+
 // struct xfrm_lifetime_cur {
 //   __u64 bytes;
 //   __u64 packets;
@@ -273,6 +283,11 @@ func DeserializeXfrmLifetimeCur(b []byte) *XfrmLifetimeCur {
 
 func (msg *XfrmLifetimeCur) Serialize() []byte {
 	return (*(*[SizeofXfrmLifetimeCur]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *XfrmLifetimeCur) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmLifetimeCur], msg.Serialize())
+	return SizeofXfrmLifetimeCur
 }
 
 // struct xfrm_id {
@@ -300,6 +315,11 @@ func (msg *XfrmId) Serialize() []byte {
 	return (*(*[SizeofXfrmId]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *XfrmId) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmId], msg.Serialize())
+	return SizeofXfrmId
+}
+
 type XfrmMark struct {
 	Value uint32
 	Mask  uint32
@@ -315,4 +335,9 @@ func DeserializeXfrmMark(b []byte) *XfrmMark {
 
 func (msg *XfrmMark) Serialize() []byte {
 	return (*(*[SizeofXfrmMark]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *XfrmMark) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmMark], msg.Serialize())
+	return SizeofXfrmMark
 }

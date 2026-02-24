@@ -44,7 +44,13 @@ func (b *writeBuffer) Next(n int) []byte {
 }
 
 func (r *socketRequest) Serialize() []byte {
-	b := writeBuffer{Bytes: make([]byte, sizeofSocketRequest)}
+	buf := make([]byte, sizeofSocketRequest)
+	r.SerializeTo(buf)
+	return buf
+}
+
+func (r *socketRequest) SerializeTo(buf []byte) int {
+	b := writeBuffer{Bytes: buf}
 	b.Write(r.Family)
 	b.Write(r.Protocol)
 	b.Write(r.Ext)
@@ -62,7 +68,7 @@ func (r *socketRequest) Serialize() []byte {
 	native.PutUint32(b.Next(4), r.ID.Interface)
 	native.PutUint32(b.Next(4), r.ID.Cookie[0])
 	native.PutUint32(b.Next(4), r.ID.Cookie[1])
-	return b.Bytes
+	return sizeofSocketRequest
 }
 
 func (r *socketRequest) Len() int { return sizeofSocketRequest }
@@ -79,7 +85,13 @@ type unixSocketRequest struct {
 }
 
 func (r *unixSocketRequest) Serialize() []byte {
-	b := writeBuffer{Bytes: make([]byte, sizeofUnixSocketRequest)}
+	buf := make([]byte, sizeofUnixSocketRequest)
+	r.SerializeTo(buf)
+	return buf
+}
+
+func (r *unixSocketRequest) SerializeTo(buf []byte) int {
+	b := writeBuffer{Bytes: buf}
 	b.Write(r.Family)
 	b.Write(r.Protocol)
 	native.PutUint16(b.Next(2), r.pad)
@@ -88,7 +100,7 @@ func (r *unixSocketRequest) Serialize() []byte {
 	native.PutUint32(b.Next(4), r.Show)
 	native.PutUint32(b.Next(4), r.Cookie[0])
 	native.PutUint32(b.Next(4), r.Cookie[1])
-	return b.Bytes
+	return sizeofUnixSocketRequest
 }
 
 func (r *unixSocketRequest) Len() int { return sizeofUnixSocketRequest }

@@ -36,6 +36,11 @@ func (msg *XfrmUserpolicyId) Serialize() []byte {
 	return (*(*[SizeofXfrmUserpolicyId]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *XfrmUserpolicyId) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmUserpolicyId], msg.Serialize())
+	return SizeofXfrmUserpolicyId
+}
+
 // struct xfrm_userpolicy_info {
 //   struct xfrm_selector    sel;
 //   struct xfrm_lifetime_cfg  lft;
@@ -78,6 +83,11 @@ func (msg *XfrmUserpolicyInfo) Serialize() []byte {
 	return (*(*[SizeofXfrmUserpolicyInfo]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *XfrmUserpolicyInfo) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmUserpolicyInfo], msg.Serialize())
+	return SizeofXfrmUserpolicyInfo
+}
+
 // struct xfrm_user_tmpl {
 //   struct xfrm_id    id;
 //   __u16     family;
@@ -116,4 +126,9 @@ func DeserializeXfrmUserTmpl(b []byte) *XfrmUserTmpl {
 
 func (msg *XfrmUserTmpl) Serialize() []byte {
 	return (*(*[SizeofXfrmUserTmpl]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *XfrmUserTmpl) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmUserTmpl], msg.Serialize())
+	return SizeofXfrmUserTmpl
 }

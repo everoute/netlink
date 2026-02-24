@@ -31,3 +31,8 @@ func DeserializeNhmsg(b []byte) *Nhmsg {
 func (msg *Nhmsg) Serialize() []byte {
 	return (*(*[sizeofNhmsg]byte)(unsafe.Pointer(msg)))[:]
 }
+
+func (msg *Nhmsg) SerializeTo(buf []byte) int {
+	copy(buf[0:sizeofNhmsg], msg.Serialize())
+	return sizeofNhmsg
+}

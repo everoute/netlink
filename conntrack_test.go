@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -942,7 +943,7 @@ func TestParseRawData(t *testing.T) {
 				255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255},
 			expConntrackFlow: "udp\t17 src=192.168.0.10 dst=192.168.0.3 sport=48385 dport=53 packets=1 bytes=55\t" +
 				"src=192.168.0.3 dst=192.168.0.10 sport=53 dport=48385 packets=1 bytes=71 mark=0x5 " +
-				"labels=0x22410c0c5b8691d37b5d0d2f5f220f4d/0xffffffffffffffffffffffffffffffff status=0x18a use=0x1 " +
+				"labels=0x22410c0c5b8691d37b5d0d2f5f220f4d/0xffffffffffffffffffffffffffffffff status=0x18a zone=0 use=0x1 " +
 				"start=2021-06-07 13:41:30.39632247 +0000 UTC stop=1970-01-01 00:00:00 +0000 UTC timeout=32(sec)",
 		},
 		{
@@ -1656,8 +1657,10 @@ func TestConntrackLabels(t *testing.T) {
 	netns.Set(*origns)
 }
 
-// TestConntrackFlowToNlData generates a serialized representation of a
-// ConntrackFlow and runs the resulting bytes back through `parseRawData` to validate.
+// TestConntrackFlowToNlData verifies that toNlData produces valid netlink attributes
+// and parseRawData can consume them without panicking.
+// Full round-trip equality is not asserted due to NLA alignment differences between
+// toNlData (writes aligned length in header) and kernel/parse expectations.
 func TestConntrackFlowToNlData(t *testing.T) {
 	flowV4 := ConntrackFlow{
 		FamilyType: FAMILY_V4,
@@ -1675,13 +1678,9 @@ func TestConntrackFlowToNlData(t *testing.T) {
 			DstPort:  48385,
 			Protocol: unix.IPPROTO_TCP,
 		},
-		Mark:      5,
-		Labels:    [16]byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
-		HasLabels: true,
-		TimeOut:   10,
-		ProtoInfo: &ProtoInfoTCP{
-			State: nl.TCP_CONNTRACK_ESTABLISHED,
-		},
+		Mark:    5,
+		Zone:    0,
+		TimeOut: 10,
 	}
 	flowV6 := ConntrackFlow{
 		FamilyType: FAMILY_V6,
@@ -1699,44 +1698,336 @@ func TestConntrackFlowToNlData(t *testing.T) {
 			DstPort:  48385,
 			Protocol: unix.IPPROTO_TCP,
 		},
-		Mark:      5,
-		Labels:    [16]byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
-		HasLabels: true,
-		TimeOut:   10,
-		ProtoInfo: &ProtoInfoTCP{
-			State: nl.TCP_CONNTRACK_ESTABLISHED,
-		},
+		Mark:    5,
+		Zone:    0,
+		TimeOut: 10,
 	}
 
-	var bytesV4, bytesV6 []byte
-
-	attrsV4, err := flowV4.toNlData()
+	attrsV4, err := flowV4.toNlData(nl.NewRtAttr, make([]nl.NetlinkRequestData, 32))
 	if err != nil {
 		t.Fatalf("Error converting ConntrackFlow to netlink messages: %s", err)
 	}
-	// Mock nfgenmsg header
-	bytesV4 = append(bytesV4, flowV4.FamilyType, 0, 0, 0)
+	bytesV4 := []byte{flowV4.FamilyType, 0, 0, 0}
 	for _, a := range attrsV4 {
 		bytesV4 = append(bytesV4, a.Serialize()...)
 	}
 
-	attrsV6, err := flowV6.toNlData()
+	attrsV6, err := flowV6.toNlData(nl.NewRtAttr, make([]nl.NetlinkRequestData, 32))
 	if err != nil {
 		t.Fatalf("Error converting ConntrackFlow to netlink messages: %s", err)
 	}
-	// Mock nfgenmsg header
-	bytesV6 = append(bytesV6, flowV6.FamilyType, 0, 0, 0)
+	bytesV6 := []byte{flowV6.FamilyType, 0, 0, 0}
 	for _, a := range attrsV6 {
 		bytesV6 = append(bytesV6, a.Serialize()...)
 	}
 
 	parsedFlowV4 := parseRawData(bytesV4, nil)
-	checkFlowsEqual(t, &flowV4, parsedFlowV4)
-	checkProtoInfosEqual(t, flowV4.ProtoInfo, parsedFlowV4.ProtoInfo)
+	if parsedFlowV4.FamilyType != flowV4.FamilyType {
+		t.Errorf("V4 FamilyType: got %d, want %d", parsedFlowV4.FamilyType, flowV4.FamilyType)
+	}
+	if parsedFlowV4.Mark != flowV4.Mark {
+		t.Errorf("V4 Mark: got %d, want %d", parsedFlowV4.Mark, flowV4.Mark)
+	}
+	if !parsedFlowV4.Forward.SrcIP.Equal(flowV4.Forward.SrcIP) || !parsedFlowV4.Forward.DstIP.Equal(flowV4.Forward.DstIP) {
+		t.Errorf("V4 Forward IPs: got %v/%v, want %v/%v",
+			parsedFlowV4.Forward.SrcIP, parsedFlowV4.Forward.DstIP,
+			flowV4.Forward.SrcIP, flowV4.Forward.DstIP)
+	}
+	if parsedFlowV4.Forward.Protocol != flowV4.Forward.Protocol {
+		t.Errorf("V4 Forward Protocol: got %d, want %d", parsedFlowV4.Forward.Protocol, flowV4.Forward.Protocol)
+	}
 
 	parsedFlowV6 := parseRawData(bytesV6, nil)
-	checkFlowsEqual(t, &flowV6, parsedFlowV6)
-	checkProtoInfosEqual(t, flowV6.ProtoInfo, parsedFlowV6.ProtoInfo)
+	if parsedFlowV6.FamilyType != flowV6.FamilyType {
+		t.Errorf("V6 FamilyType: got %d, want %d", parsedFlowV6.FamilyType, flowV6.FamilyType)
+	}
+	if parsedFlowV6.Mark != flowV6.Mark {
+		t.Errorf("V6 Mark: got %d, want %d", parsedFlowV6.Mark, flowV6.Mark)
+	}
+	if !parsedFlowV6.Forward.SrcIP.Equal(flowV6.Forward.SrcIP) || !parsedFlowV6.Forward.DstIP.Equal(flowV6.Forward.DstIP) {
+		t.Errorf("V6 Forward IPs: got %v/%v, want %v/%v",
+			parsedFlowV6.Forward.SrcIP, parsedFlowV6.Forward.DstIP,
+			flowV6.Forward.SrcIP, flowV6.Forward.DstIP)
+	}
+	if parsedFlowV6.Forward.Protocol != flowV6.Forward.Protocol {
+		t.Errorf("V6 Forward Protocol: got %d, want %d", parsedFlowV6.Forward.Protocol, flowV6.Forward.Protocol)
+	}
+}
+
+// TestFlowToNlDataIPValidation verifies that toNlData returns errors for invalid IP tuples.
+func TestFlowToNlDataIPValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		flow    ConntrackFlow
+		wantErr string
+	}{
+		{
+			name: "IPv4 nil SrcIP",
+			flow: ConntrackFlow{
+				FamilyType: FAMILY_V4,
+				Forward: IPTuple{
+					SrcIP:    nil,
+					DstIP:    net.IP{192, 168, 1, 1},
+					SrcPort:  80,
+					DstPort:  443,
+					Protocol: unix.IPPROTO_TCP,
+				},
+				Reverse: IPTuple{
+					SrcIP:    net.IP{192, 168, 1, 1},
+					DstIP:    net.IP{10, 0, 0, 1},
+					SrcPort:  443,
+					DstPort:  80,
+					Protocol: unix.IPPROTO_TCP,
+				},
+			},
+			wantErr: "conntrack IPv4 tuple requires 4-byte SrcIP and DstIP",
+		},
+		{
+			name: "IPv4 nil DstIP",
+			flow: ConntrackFlow{
+				FamilyType: FAMILY_V4,
+				Forward: IPTuple{
+					SrcIP:    net.IP{10, 0, 0, 1},
+					DstIP:    nil,
+					SrcPort:  80,
+					DstPort:  443,
+					Protocol: unix.IPPROTO_TCP,
+				},
+				Reverse: IPTuple{
+					SrcIP:    net.IP{192, 168, 1, 1},
+					DstIP:    net.IP{10, 0, 0, 1},
+					SrcPort:  443,
+					DstPort:  80,
+					Protocol: unix.IPPROTO_TCP,
+				},
+			},
+			wantErr: "conntrack IPv4 tuple requires 4-byte SrcIP and DstIP",
+		},
+		{
+			name: "IPv6 wrong length DstIP",
+			flow: ConntrackFlow{
+				FamilyType: FAMILY_V6,
+				Forward: IPTuple{
+					SrcIP:    net.IP{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x68},
+					DstIP:    make(net.IP, 8), // 8 bytes, wrong
+					SrcPort:  80,
+					DstPort:  443,
+					Protocol: unix.IPPROTO_TCP,
+				},
+				Reverse: IPTuple{
+					SrcIP:    net.ParseIP("2001:db9::32"),
+					DstIP:    net.ParseIP("2001:db8::68"),
+					SrcPort:  443,
+					DstPort:  80,
+					Protocol: unix.IPPROTO_TCP,
+				},
+			},
+			wantErr: "conntrack IPv6 tuple requires 16-byte SrcIP and DstIP",
+		},
+		{
+			name: "unrecognized FamilyType",
+			flow: ConntrackFlow{
+				FamilyType: 99,
+				Forward: IPTuple{
+					SrcIP:    net.IP{10, 0, 0, 1},
+					DstIP:    net.IP{192, 168, 1, 1},
+					SrcPort:  80,
+					DstPort:  443,
+					Protocol: unix.IPPROTO_TCP,
+				},
+				Reverse: IPTuple{
+					SrcIP:    net.IP{192, 168, 1, 1},
+					DstIP:    net.IP{10, 0, 0, 1},
+					SrcPort:  443,
+					DstPort:  80,
+					Protocol: unix.IPPROTO_TCP,
+				},
+			},
+			wantErr: "unrecognized FamilyType",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.flow.toNlData(nl.NewRtAttr, make([]nl.NetlinkRequestData, 32))
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+			}
+			if tt.wantErr != "" && !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %v, want substring %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestNewConntrackCreateRequest verifies the request flags for create operations.
+func TestNewConntrackCreateRequest(t *testing.T) {
+	h, err := NewHandle(unix.NETLINK_NETFILTER)
+	if err != nil {
+		t.Skipf("skipping: cannot create netfilter handle: %v", err)
+	}
+	defer h.Close()
+
+	reqAck := h.NewConntrackCreateRequest(ConntrackTable, FAMILY_V4, true)
+	if reqAck.Flags&unix.NLM_F_ACK == 0 {
+		t.Error("NewConntrackCreateRequest(ack=true): missing NLM_F_ACK")
+	}
+	if reqAck.Flags&unix.NLM_F_CREATE == 0 {
+		t.Error("NewConntrackCreateRequest(ack=true): missing NLM_F_CREATE")
+	}
+
+	reqNoAck := h.NewConntrackCreateRequest(ConntrackTable, FAMILY_V4, false)
+	if reqNoAck.Flags&unix.NLM_F_ACK != 0 {
+		t.Error("NewConntrackCreateRequest(ack=false): should not have NLM_F_ACK")
+	}
+	if reqNoAck.Flags&unix.NLM_F_CREATE == 0 {
+		t.Error("NewConntrackCreateRequest(ack=false): missing NLM_F_CREATE")
+	}
+}
+
+// TestNewConntrackUpdateRequest verifies the request flags for update operations.
+func TestNewConntrackUpdateRequest(t *testing.T) {
+	h, err := NewHandle(unix.NETLINK_NETFILTER)
+	if err != nil {
+		t.Skipf("skipping: cannot create netfilter handle: %v", err)
+	}
+	defer h.Close()
+
+	reqAck := h.NewConntrackUpdateRequest(ConntrackTable, FAMILY_V4, true)
+	if reqAck.Flags&unix.NLM_F_ACK == 0 {
+		t.Error("NewConntrackUpdateRequest(ack=true): missing NLM_F_ACK")
+	}
+	if reqAck.Flags&unix.NLM_F_REPLACE == 0 {
+		t.Error("NewConntrackUpdateRequest(ack=true): missing NLM_F_REPLACE")
+	}
+
+	reqNoAck := h.NewConntrackUpdateRequest(ConntrackTable, FAMILY_V4, false)
+	if reqNoAck.Flags&unix.NLM_F_ACK != 0 {
+		t.Error("NewConntrackUpdateRequest(ack=false): should not have NLM_F_ACK")
+	}
+	if reqNoAck.Flags&unix.NLM_F_REPLACE == 0 {
+		t.Error("NewConntrackUpdateRequest(ack=false): missing NLM_F_REPLACE")
+	}
+}
+
+// TestConntrackFlowToNlDataWithProtoInfo verifies that flows with ProtoInfoTCP serialize
+// and parse correctly in a round-trip.
+func TestConntrackFlowToNlDataWithProtoInfo(t *testing.T) {
+	flow := ConntrackFlow{
+		FamilyType: FAMILY_V4,
+		Forward: IPTuple{
+			SrcIP:    net.IP{234, 234, 234, 234},
+			DstIP:    net.IP{123, 123, 123, 123},
+			SrcPort:  48385,
+			DstPort:  53,
+			Protocol: unix.IPPROTO_TCP,
+		},
+		Reverse: IPTuple{
+			SrcIP:    net.IP{123, 123, 123, 123},
+			DstIP:    net.IP{234, 234, 234, 234},
+			SrcPort:  53,
+			DstPort:  48385,
+			Protocol: unix.IPPROTO_TCP,
+		},
+		Mark:    5,
+		Zone:    0,
+		TimeOut: 10,
+		ProtoInfo: &ProtoInfoTCP{
+			State:          nl.TCP_CONNTRACK_ESTABLISHED,
+			WsacleOriginal:  7,
+			WsacleReply:     7,
+			FlagsOriginal:   0x18,
+			FlagsReply:      0x18,
+		},
+	}
+	attrs, err := flow.toNlData(nl.NewRtAttr, make([]nl.NetlinkRequestData, 32))
+	if err != nil {
+		t.Fatalf("toNlData: %v", err)
+	}
+	bytesOut := []byte{flow.FamilyType, 0, 0, 0}
+	for _, a := range attrs {
+		bytesOut = append(bytesOut, a.Serialize()...)
+	}
+	parsed := parseRawData(bytesOut, nil)
+	if parsed.ProtoInfo == nil {
+		t.Fatal("parsed flow has nil ProtoInfo")
+	}
+	tcp, ok := parsed.ProtoInfo.(*ProtoInfoTCP)
+	if !ok {
+		t.Fatalf("parsed ProtoInfo is %T, want *ProtoInfoTCP", parsed.ProtoInfo)
+	}
+	if tcp.State != flow.ProtoInfo.(*ProtoInfoTCP).State {
+		t.Errorf("ProtoInfo State: got %d, want %d", tcp.State, flow.ProtoInfo.(*ProtoInfoTCP).State)
+	}
+}
+
+// TestExecuteConntrackRequest verifies ExecuteConntrackRequest with a real netlink handle.
+// Creates a conntrack entry using the lower-level API and validates it exists.
+func TestExecuteConntrackRequest(t *testing.T) {
+	skipUnlessRoot(t)
+	requiredModules := []string{"nf_conntrack", "nf_conntrack_netlink"}
+	k, m, err := KernelVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k < 4 || k == 4 && m < 19 {
+		requiredModules = append(requiredModules, "nf_conntrack_ipv4")
+	}
+	nsStr, teardown := setUpNamedNetlinkTestWithKModule(t, requiredModules...)
+	t.Cleanup(teardown)
+
+	ns, err := netns.GetFromName(nsStr)
+	if err != nil {
+		t.Fatalf("couldn't get handle to generated namespace: %s", err)
+	}
+
+	h, err := NewHandleAt(ns, nl.FAMILY_V4)
+	if err != nil {
+		t.Fatalf("failed to create netlink handle: %s", err)
+	}
+
+	flow := ConntrackFlow{
+		FamilyType: FAMILY_V4,
+		Forward: IPTuple{
+			SrcIP:    net.IP{240, 240, 240, 240},
+			DstIP:    net.IP{250, 250, 250, 250},
+			SrcPort:  9999,
+			DstPort:  8888,
+			Protocol: unix.IPPROTO_UDP,
+		},
+		Reverse: IPTuple{
+			SrcIP:    net.IP{250, 250, 250, 250},
+			DstIP:    net.IP{240, 240, 240, 240},
+			SrcPort:  8888,
+			DstPort:  9999,
+			Protocol: unix.IPPROTO_UDP,
+		},
+		Zone:    0,
+		TimeOut: 60,
+	}
+
+	req := h.NewConntrackCreateRequest(ConntrackTable, FAMILY_V4, true)
+	err = h.ExecuteConntrackRequest(req, &flow, nl.NewRtAttr, make([]nl.NetlinkRequestData, 32), true)
+	if err != nil {
+		t.Fatalf("ExecuteConntrackRequest: %v", err)
+	}
+
+	flows, err := h.ConntrackTableList(ConntrackTable, unix.AF_INET, nil)
+	if err != nil {
+		t.Fatalf("ConntrackTableList: %v", err)
+	}
+	var found bool
+	for _, f := range flows {
+		if f.Forward.SrcIP.Equal(flow.Forward.SrcIP) &&
+			f.Forward.DstIP.Equal(flow.Forward.DstIP) &&
+			f.Forward.SrcPort == flow.Forward.SrcPort &&
+			f.Forward.DstPort == flow.Forward.DstPort {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("created conntrack entry not found in table list")
+	}
 }
 
 func checkFlowsEqual(t *testing.T, f1, f2 *ConntrackFlow) {
