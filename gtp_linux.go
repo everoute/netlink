@@ -105,7 +105,7 @@ func GTPPDPList() ([]*PDP, error) {
 	return pkgHandle.GTPPDPList()
 }
 
-func gtpPDPGet(req *nl.NetlinkRequest) (*PDP, error) {
+func gtpPDPGet(req nl.NetlinkRequest) (*PDP, error) {
 	msgs, err := req.Execute(unix.NETLINK_GENERIC, 0)
 	if err != nil {
 		return nil, err
@@ -134,7 +134,7 @@ func (h *Handle) GTPPDPByTID(link Link, tid int) (*PDP, error) {
 	req.AddData(nl.NewRtAttr(nl.GENL_GTP_ATTR_VERSION, nl.Uint32Attr(0)))
 	req.AddData(nl.NewRtAttr(nl.GENL_GTP_ATTR_LINK, nl.Uint32Attr(uint32(link.Attrs().Index))))
 	req.AddData(nl.NewRtAttr(nl.GENL_GTP_ATTR_TID, nl.Uint64Attr(uint64(tid))))
-	return gtpPDPGet(&req)
+	return gtpPDPGet(req)
 }
 
 func GTPPDPByTID(link Link, tid int) (*PDP, error) {
@@ -155,7 +155,7 @@ func (h *Handle) GTPPDPByITEI(link Link, itei int) (*PDP, error) {
 	req.AddData(nl.NewRtAttr(nl.GENL_GTP_ATTR_VERSION, nl.Uint32Attr(1)))
 	req.AddData(nl.NewRtAttr(nl.GENL_GTP_ATTR_LINK, nl.Uint32Attr(uint32(link.Attrs().Index))))
 	req.AddData(nl.NewRtAttr(nl.GENL_GTP_ATTR_I_TEI, nl.Uint32Attr(uint32(itei))))
-	return gtpPDPGet(&req)
+	return gtpPDPGet(req)
 }
 
 func GTPPDPByITEI(link Link, itei int) (*PDP, error) {
@@ -176,7 +176,7 @@ func (h *Handle) GTPPDPByMSAddress(link Link, addr net.IP) (*PDP, error) {
 	req.AddData(nl.NewRtAttr(nl.GENL_GTP_ATTR_VERSION, nl.Uint32Attr(0)))
 	req.AddData(nl.NewRtAttr(nl.GENL_GTP_ATTR_LINK, nl.Uint32Attr(uint32(link.Attrs().Index))))
 	req.AddData(nl.NewRtAttr(nl.GENL_GTP_ATTR_MS_ADDRESS, []byte(addr.To4())))
-	return gtpPDPGet(&req)
+	return gtpPDPGet(req)
 }
 
 func GTPPDPByMSAddress(link Link, addr net.IP) (*PDP, error) {

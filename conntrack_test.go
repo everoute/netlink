@@ -209,7 +209,7 @@ func TestConntrackTableList(t *testing.T) {
 	udpFlowCreateProg(t, 5, 2000, "127.0.0.10", 3000)
 
 	// Fetch the conntrack table
-	flows, err := h.ConntrackTableList(ConntrackTable, unix.AF_INET, nil)
+	flows, err := h.ConntrackTableList(ConntrackTable, unix.AF_INET)
 	CheckErrorFail(t, err)
 
 	// Check that it is able to find the 5 flows created
@@ -242,7 +242,7 @@ func TestConntrackTableList(t *testing.T) {
 	}
 
 	// Give a try also to the IPv6 version
-	_, err = h.ConntrackTableList(ConntrackTable, unix.AF_INET6, nil)
+	_, err = h.ConntrackTableList(ConntrackTable, unix.AF_INET6)
 	CheckErrorFail(t, err)
 
 	// Switch back to the original namespace
@@ -276,7 +276,7 @@ func TestConntrackTableFlush(t *testing.T) {
 	udpFlowCreateProg(t, 5, 3000, "127.0.0.10", 4000)
 
 	// Fetch the conntrack table
-	flows, err := h.ConntrackTableList(ConntrackTable, unix.AF_INET, nil)
+	flows, err := h.ConntrackTableList(ConntrackTable, unix.AF_INET)
 	CheckErrorFail(t, err)
 
 	// Check that it is able to find the 5 flows created
@@ -298,7 +298,7 @@ func TestConntrackTableFlush(t *testing.T) {
 	CheckErrorFail(t, err)
 
 	// Fetch again the flows to validate the flush
-	flows, err = h.ConntrackTableList(ConntrackTable, unix.AF_INET, nil)
+	flows, err = h.ConntrackTableList(ConntrackTable, unix.AF_INET)
 	CheckErrorFail(t, err)
 
 	// Check if it is still able to find the 5 flows created
@@ -349,7 +349,7 @@ func TestConntrackTableDelete(t *testing.T) {
 	udpFlowCreateProg(t, 5, 7000, "127.0.0.20", 8000)
 
 	// Fetch the conntrack table
-	flows, err := h.ConntrackTableList(ConntrackTable, unix.AF_INET, nil)
+	flows, err := h.ConntrackTableList(ConntrackTable, unix.AF_INET)
 	CheckErrorFail(t, err)
 
 	// Check that it is able to find the 5 flows created for each group
@@ -389,7 +389,7 @@ func TestConntrackTableDelete(t *testing.T) {
 	}
 
 	// Check again the table to verify that are gone
-	flows, err = h.ConntrackTableList(ConntrackTable, unix.AF_INET, nil)
+	flows, err = h.ConntrackTableList(ConntrackTable, unix.AF_INET)
 	CheckErrorFail(t, err)
 
 	// Check if it is able to find the 5 flows of groupA but none of groupB
@@ -809,11 +809,19 @@ func TestConntrackFilter(t *testing.T) {
 		t.Fatalf("Error, there should be only 1 match, v4:%d, v6:%d", v4Match, v6Match)
 	}
 
-	// Labels filter
+	// Labels filter: for ConntrackMatchLabels, label must be contained in flow.Labels (bytes.Contains).
+	// The TCP flow (10.0.0.2) has Labels {0,0,0,0,3,4,61,141,207,170,2,0,0,0,0,0}; use it as the label.
 	filterV4 = &ConntrackFilter{}
+	err = filterV4.AddProtocol(6)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	err = filterV4.AddPort(ConntrackOrigSrcPort, 5000)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
 	var labels [][16]byte
-	labels = append(labels, [16]byte{3, 4, 61, 141, 207, 170, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-	labels = append(labels, [16]byte{0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0})
+	labels = append(labels, [16]byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0})
 	err = filterV4.AddLabels(ConntrackMatchLabels, labels)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -1129,7 +1137,7 @@ func TestConntrackUpdateV4(t *testing.T) {
 		t.Fatalf("failed to insert conntrack: %s", err)
 	}
 
-	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4, nil)
+	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4)
 	if err != nil {
 		t.Fatalf("failed to list conntracks following successful insert: %s", err)
 	}
@@ -1175,7 +1183,7 @@ func TestConntrackUpdateV4(t *testing.T) {
 	}
 
 	// Look for updated conntrack.
-	flows, err = h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4, nil)
+	flows, err = h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4)
 	if err != nil {
 		t.Fatalf("failed to list conntracks following successful update: %s", err)
 	}
@@ -1262,7 +1270,7 @@ func TestConntrackUpdateV6(t *testing.T) {
 		t.Fatalf("failed to insert conntrack: %s", err)
 	}
 
-	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V6, nil)
+	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V6)
 	if err != nil {
 		t.Fatalf("failed to list conntracks following successful insert: %s", err)
 	}
@@ -1308,7 +1316,7 @@ func TestConntrackUpdateV6(t *testing.T) {
 	}
 
 	// Look for updated conntrack.
-	flows, err = h.ConntrackTableList(ConntrackTable, nl.FAMILY_V6, nil)
+	flows, err = h.ConntrackTableList(ConntrackTable, nl.FAMILY_V6)
 	if err != nil {
 		t.Fatalf("failed to list conntracks following successful update: %s", err)
 	}
@@ -1388,7 +1396,7 @@ func TestConntrackCreateV4(t *testing.T) {
 		t.Fatalf("failed to insert conntrack: %s", err)
 	}
 
-	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4, nil)
+	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4)
 	if err != nil {
 		t.Fatalf("failed to list conntracks following successful insert: %s", err)
 	}
@@ -1483,7 +1491,7 @@ func TestConntrackCreateV6(t *testing.T) {
 		t.Fatalf("failed to insert conntrack: %s", err)
 	}
 
-	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V6, nil)
+	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V6)
 	if err != nil {
 		t.Fatalf("failed to list conntracks following successful insert: %s", err)
 	}
@@ -1583,7 +1591,7 @@ func TestConntrackLabels(t *testing.T) {
 		t.Fatalf("failed to insert conntrack: %s", err)
 	}
 
-	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4, nil)
+	flows, err := h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4)
 	if err != nil {
 		t.Fatalf("failed to list conntracks following successful insert: %s", err)
 	}
@@ -1630,7 +1638,7 @@ func TestConntrackLabels(t *testing.T) {
 	}
 
 	// Look for updated conntrack.
-	flows, err = h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4, nil)
+	flows, err = h.ConntrackTableList(ConntrackTable, nl.FAMILY_V4)
 	if err != nil {
 		t.Fatalf("failed to list conntracks following successful update: %s", err)
 	}
@@ -2011,7 +2019,7 @@ func TestExecuteConntrackRequest(t *testing.T) {
 		t.Fatalf("ExecuteConntrackRequest: %v", err)
 	}
 
-	flows, err := h.ConntrackTableList(ConntrackTable, unix.AF_INET, nil)
+	flows, err := h.ConntrackTableList(ConntrackTable, unix.AF_INET)
 	if err != nil {
 		t.Fatalf("ConntrackTableList: %v", err)
 	}
