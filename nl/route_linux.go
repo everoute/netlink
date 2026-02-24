@@ -42,6 +42,11 @@ func (msg *RtMsg) Serialize() []byte {
 	return (*(*[unix.SizeofRtMsg]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *RtMsg) SerializeTo(buf []byte) int {
+	copy(buf[0:unix.SizeofRtMsg], msg.Serialize())
+	return unix.SizeofRtMsg
+}
+
 type RtNexthop struct {
 	unix.RtNexthop
 	Children []NetlinkRequestData
@@ -64,6 +69,20 @@ func (msg *RtNexthop) Len() int {
 	}
 	l += unix.SizeofRtNexthop
 	return rtaAlignOf(l)
+}
+
+func (msg *RtNexthop) SerializeTo(buf []byte) int {
+	length := msg.Len()
+	msg.RtNexthop.Len = uint16(length)
+	copy(buf, (*(*[unix.SizeofRtNexthop]byte)(unsafe.Pointer(msg)))[:])
+	next := rtaAlignOf(unix.SizeofRtNexthop)
+	if len(msg.Children) > 0 {
+		for _, child := range msg.Children {
+			size := child.SerializeTo(buf[next:])
+			next += rtaAlignOf(size)
+		}
+	}
+	return length
 }
 
 func (msg *RtNexthop) Serialize() []byte {
@@ -106,4 +125,13 @@ func (msg *RtGenMsg) Serialize() []byte {
 	out := make([]byte, msg.Len())
 	out[0] = msg.Family
 	return out
+}
+
+func (msg *RtGenMsg) SerializeTo(buf []byte) int {
+	l := rtaAlignOf(unix.SizeofRtGenmsg)
+	for i := range buf[:l] {
+		buf[i] = 0
+	}
+	buf[0] = msg.Family
+	return l
 }

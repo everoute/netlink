@@ -375,6 +375,11 @@ func (msg *VfMac) Serialize() []byte {
 	return (*(*[SizeofVfMac]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *VfMac) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofVfMac], msg.Serialize())
+	return SizeofVfMac
+}
+
 // struct ifla_vf_vlan {
 //   __u32 vf;
 //   __u32 vlan; /* 0 - 4095, 0 disables VLAN filter */
@@ -397,6 +402,11 @@ func DeserializeVfVlan(b []byte) *VfVlan {
 
 func (msg *VfVlan) Serialize() []byte {
 	return (*(*[SizeofVfVlan]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *VfVlan) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofVfVlan], msg.Serialize())
+	return SizeofVfVlan
 }
 
 func DeserializeVfVlanList(b []byte) ([]*VfVlanInfo, error) {
@@ -462,6 +472,11 @@ func DeserializeVfTxRate(b []byte) *VfTxRate {
 
 func (msg *VfTxRate) Serialize() []byte {
 	return (*(*[SizeofVfTxRate]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *VfTxRate) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofVfTxRate], msg.Serialize())
+	return SizeofVfTxRate
 }
 
 //struct ifla_vf_stats {
@@ -541,6 +556,11 @@ func (msg *VfRate) Serialize() []byte {
 	return (*(*[SizeofVfRate]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *VfRate) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofVfRate], msg.Serialize())
+	return SizeofVfRate
+}
+
 // struct ifla_vf_spoofchk {
 //   __u32 vf;
 //   __u32 setting;
@@ -561,6 +581,11 @@ func DeserializeVfSpoofchk(b []byte) *VfSpoofchk {
 
 func (msg *VfSpoofchk) Serialize() []byte {
 	return (*(*[SizeofVfSpoofchk]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *VfSpoofchk) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofVfSpoofchk], msg.Serialize())
+	return SizeofVfSpoofchk
 }
 
 // struct ifla_vf_link_state {
@@ -585,6 +610,11 @@ func (msg *VfLinkState) Serialize() []byte {
 	return (*(*[SizeofVfLinkState]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *VfLinkState) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofVfLinkState], msg.Serialize())
+	return SizeofVfLinkState
+}
+
 // struct ifla_vf_rss_query_en {
 //   __u32 vf;
 //   __u32 setting;
@@ -605,6 +635,11 @@ func DeserializeVfRssQueryEn(b []byte) *VfRssQueryEn {
 
 func (msg *VfRssQueryEn) Serialize() []byte {
 	return (*(*[SizeofVfRssQueryEn]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *VfRssQueryEn) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofVfRssQueryEn], msg.Serialize())
+	return SizeofVfRssQueryEn
 }
 
 // struct ifla_vf_trust {
@@ -629,6 +664,11 @@ func (msg *VfTrust) Serialize() []byte {
 	return (*(*[SizeofVfTrust]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *VfTrust) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofVfTrust], msg.Serialize())
+	return SizeofVfTrust
+}
+
 // struct ifla_vf_guid {
 //   __u32 vf;
 //   __u32 rsvd;
@@ -651,6 +691,11 @@ func DeserializeVfGUID(b []byte) *VfGUID {
 
 func (msg *VfGUID) Serialize() []byte {
 	return (*(*[SizeofVfGUID]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *VfGUID) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofVfGUID], msg.Serialize())
+	return SizeofVfGUID
 }
 
 const (

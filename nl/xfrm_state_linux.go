@@ -61,6 +61,11 @@ func (msg *XfrmUsersaId) Serialize() []byte {
 	return (*(*[SizeofXfrmUsersaId]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *XfrmUsersaId) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmUsersaId], msg.Serialize())
+	return SizeofXfrmUsersaId
+}
+
 // struct xfrm_stats {
 //   __u32 replay_window;
 //   __u32 replay;
@@ -83,6 +88,11 @@ func DeserializeXfrmStats(b []byte) *XfrmStats {
 
 func (msg *XfrmStats) Serialize() []byte {
 	return (*(*[SizeofXfrmStats]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *XfrmStats) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmStats], msg.Serialize())
+	return SizeofXfrmStats
 }
 
 // struct xfrm_usersa_info {
@@ -140,6 +150,11 @@ func (msg *XfrmUsersaInfo) Serialize() []byte {
 	return (*(*[SizeofXfrmUsersaInfo]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *XfrmUsersaInfo) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmUsersaInfo], msg.Serialize())
+	return SizeofXfrmUsersaInfo
+}
+
 // struct xfrm_userspi_info {
 // 	struct xfrm_usersa_info		info;
 // 	__u32				min;
@@ -162,6 +177,11 @@ func DeserializeXfrmUserSpiInfo(b []byte) *XfrmUserSpiInfo {
 
 func (msg *XfrmUserSpiInfo) Serialize() []byte {
 	return (*(*[SizeofXfrmUserSpiInfo]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *XfrmUserSpiInfo) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmUserSpiInfo], msg.Serialize())
+	return SizeofXfrmUserSpiInfo
 }
 
 // struct xfrm_algo {
@@ -194,6 +214,14 @@ func (msg *XfrmAlgo) Serialize() []byte {
 	copy(b[64:68], (*(*[4]byte)(unsafe.Pointer(&msg.AlgKeyLen)))[:])
 	copy(b[68:msg.Len()], msg.AlgKey[:])
 	return b
+}
+
+func (msg *XfrmAlgo) SerializeTo(buf []byte) int {
+	l := msg.Len()
+	copy(buf[0:64], msg.AlgName[:])
+	copy(buf[64:68], (*(*[4]byte)(unsafe.Pointer(&msg.AlgKeyLen)))[:])
+	copy(buf[68:l], msg.AlgKey[:])
+	return l
 }
 
 // struct xfrm_algo_auth {
@@ -232,6 +260,15 @@ func (msg *XfrmAlgoAuth) Serialize() []byte {
 	return b
 }
 
+func (msg *XfrmAlgoAuth) SerializeTo(buf []byte) int {
+	l := msg.Len()
+	copy(buf[0:64], msg.AlgName[:])
+	copy(buf[64:68], (*(*[4]byte)(unsafe.Pointer(&msg.AlgKeyLen)))[:])
+	copy(buf[68:72], (*(*[4]byte)(unsafe.Pointer(&msg.AlgTruncLen)))[:])
+	copy(buf[72:l], msg.AlgKey[:])
+	return l
+}
+
 // struct xfrm_algo_aead {
 //   char    alg_name[64];
 //   unsigned int  alg_key_len;  /* in bits */
@@ -268,6 +305,15 @@ func (msg *XfrmAlgoAEAD) Serialize() []byte {
 	return b
 }
 
+func (msg *XfrmAlgoAEAD) SerializeTo(buf []byte) int {
+	l := msg.Len()
+	copy(buf[0:64], msg.AlgName[:])
+	copy(buf[64:68], (*(*[4]byte)(unsafe.Pointer(&msg.AlgKeyLen)))[:])
+	copy(buf[68:72], (*(*[4]byte)(unsafe.Pointer(&msg.AlgICVLen)))[:])
+	copy(buf[72:l], msg.AlgKey[:])
+	return l
+}
+
 // struct xfrm_encap_tmpl {
 //   __u16   encap_type;
 //   __be16    encap_sport;
@@ -295,6 +341,11 @@ func (msg *XfrmEncapTmpl) Serialize() []byte {
 	return (*(*[SizeofXfrmEncapTmpl]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *XfrmEncapTmpl) SerializeTo(buf []byte) int {
+	copy(buf, msg.Serialize())
+	return msg.Len()
+}
+
 // struct xfrm_usersa_flush {
 //    __u8 proto;
 // };
@@ -313,6 +364,11 @@ func DeserializeXfrmUsersaFlush(b []byte) *XfrmUsersaFlush {
 
 func (msg *XfrmUsersaFlush) Serialize() []byte {
 	return (*(*[SizeofXfrmUsersaFlush]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *XfrmUsersaFlush) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmUsersaFlush], msg.Serialize())
+	return SizeofXfrmUsersaFlush
 }
 
 // struct xfrm_replay_state_esn {

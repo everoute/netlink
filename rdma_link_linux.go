@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/vishvananda/netlink/nl"
@@ -42,13 +43,43 @@ func uint64ToGuidString(guid uint64) string {
 	return sysGuidNet.String()
 }
 
+func parseRaw16FromReader(reader *bytes.Reader) uint16 {
+	buf := make([]byte, 2)
+	reader.Read(buf)
+	return nl.NativeEndian().Uint16(buf)
+}
+
+func parseNfAttrTLFromReader(reader *bytes.Reader) (isNested bool, attrType, len uint16) {
+	len = parseRaw16FromReader(reader)
+	len -= nl.SizeofNfattr
+
+	attrType = parseRaw16FromReader(reader)
+	isNested = (attrType & nl.NLA_F_NESTED) == nl.NLA_F_NESTED
+	attrType = attrType & (nl.NLA_F_NESTED - 1)
+	return isNested, attrType, len
+}
+
+func parseNfAttrTLVFromReader(r *bytes.Reader) (isNested bool, attrType, len uint16, value []byte) {
+	isNested, attrType, len = parseNfAttrTLFromReader(r)
+
+	value = make([]byte, len)
+	n, err := io.ReadAtLeast(r, value, int(len))
+	if err != nil {
+		panic(err)
+	}
+	if n != int(len) {
+		panic(fmt.Errorf("expected %d bytes for nfattr value, got %d", len, n))
+	}
+	return isNested, attrType, len, value
+}
+
 func executeOneGetRdmaLink(data []byte) (*RdmaLink, error) {
 
 	link := RdmaLink{}
 
 	reader := bytes.NewReader(data)
 	for reader.Len() >= 4 {
-		_, attrType, len, value := parseNfAttrTLV(reader)
+		_, attrType, len, value := parseNfAttrTLVFromReader(reader)
 
 		switch attrType {
 		case nl.RDMA_NLDEV_ATTR_DEV_INDEX:
@@ -192,7 +223,7 @@ func netnsModeToString(mode uint8) string {
 func executeOneGetRdmaNetnsMode(data []byte) (string, error) {
 	reader := bytes.NewReader(data)
 	for reader.Len() >= 4 {
-		_, attrType, len, value := parseNfAttrTLV(reader)
+		_, attrType, len, value := parseNfAttrTLVFromReader(reader)
 
 		switch attrType {
 		case nl.RDMA_NLDEV_SYS_ATTR_NETNS_MODE:
@@ -408,14 +439,14 @@ func parseRdmaCounters(counterType uint16, data []byte) (map[string]uint64, erro
 	reader := bytes.NewReader(data)
 
 	for reader.Len() >= 4 {
-		_, attrType, _, value := parseNfAttrTLV(reader)
+		_, attrType, _, value := parseNfAttrTLVFromReader(reader)
 		if attrType != counterType {
 			return nil, fmt.Errorf("Invalid resource summary entry type; %d", attrType)
 		}
 
 		summaryReader := bytes.NewReader(value)
 		for summaryReader.Len() >= 4 {
-			_, attrType, len, value := parseNfAttrTLV(summaryReader)
+			_, attrType, len, value := parseNfAttrTLVFromReader(summaryReader)
 			if attrType != counterKeyType {
 				return nil, fmt.Errorf("Invalid resource summary entry name type; %d", attrType)
 			}
@@ -424,7 +455,7 @@ func parseRdmaCounters(counterType uint16, data []byte) (map[string]uint64, erro
 			if (len % 4) != 0 {
 				summaryReader.Seek(int64(4-(len%4)), seekCurrent)
 			}
-			_, attrType, len, value = parseNfAttrTLV(summaryReader)
+			_, attrType, len, value = parseNfAttrTLVFromReader(summaryReader)
 			if attrType != counterValueType {
 				return nil, fmt.Errorf("Invalid resource summary entry value type; %d", attrType)
 			}
@@ -438,7 +469,7 @@ func executeOneGetRdmaResourceList(data []byte) (*RdmaResource, error) {
 	var res RdmaResource
 	reader := bytes.NewReader(data)
 	for reader.Len() >= 4 {
-		_, attrType, len, value := parseNfAttrTLV(reader)
+		_, attrType, len, value := parseNfAttrTLVFromReader(reader)
 
 		switch attrType {
 		case nl.RDMA_NLDEV_ATTR_DEV_INDEX:
@@ -537,7 +568,7 @@ func executeOneGetRdmaPortStatistics(data []byte) (*RdmaPortStatistic, error) {
 	var stat RdmaPortStatistic
 	reader := bytes.NewReader(data)
 	for reader.Len() >= 4 {
-		_, attrType, len, value := parseNfAttrTLV(reader)
+		_, attrType, len, value := parseNfAttrTLVFromReader(reader)
 
 		switch attrType {
 		case nl.RDMA_NLDEV_ATTR_PORT_INDEX:

@@ -25,7 +25,13 @@ type xdpSocketRequest struct {
 }
 
 func (r *xdpSocketRequest) Serialize() []byte {
-	b := writeBuffer{Bytes: make([]byte, sizeofSocketRequest)}
+	buf := make([]byte, sizeofXDPSocketRequest)
+	r.SerializeTo(buf)
+	return buf
+}
+
+func (r *xdpSocketRequest) SerializeTo(buf []byte) int {
+	b := writeBuffer{Bytes: buf}
 	b.Write(r.Family)
 	b.Write(r.Protocol)
 	native.PutUint16(b.Next(2), r.pad)
@@ -33,7 +39,7 @@ func (r *xdpSocketRequest) Serialize() []byte {
 	native.PutUint32(b.Next(4), r.Show)
 	native.PutUint32(b.Next(4), r.Cookie[0])
 	native.PutUint32(b.Next(4), r.Cookie[1])
-	return b.Bytes
+	return sizeofXDPSocketRequest
 }
 
 func (r *xdpSocketRequest) Len() int { return sizeofXDPSocketRequest }

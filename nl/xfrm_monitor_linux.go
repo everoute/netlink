@@ -30,3 +30,8 @@ func DeserializeXfrmUserExpire(b []byte) *XfrmUserExpire {
 func (msg *XfrmUserExpire) Serialize() []byte {
 	return (*(*[SizeofXfrmUserExpire]byte)(unsafe.Pointer(msg)))[:]
 }
+
+func (msg *XfrmUserExpire) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofXfrmUserExpire], msg.Serialize())
+	return SizeofXfrmUserExpire
+}

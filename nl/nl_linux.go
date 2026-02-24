@@ -80,10 +80,11 @@ func GetIPFamily(ip net.IP) int {
 
 var nativeEndian binary.ByteOrder
 
+var x uint32 = 0x01020304
+
 // NativeEndian gets native endianness for the system
 func NativeEndian() binary.ByteOrder {
 	if nativeEndian == nil {
-		var x uint32 = 0x01020304
 		if *(*byte)(unsafe.Pointer(&x)) == 0x01 {
 			nativeEndian = binary.BigEndian
 		} else {
@@ -120,6 +121,7 @@ const (
 type NetlinkRequestData interface {
 	Len() int
 	Serialize() []byte
+	SerializeTo(buf []byte) int
 }
 
 const (
@@ -164,6 +166,11 @@ func (msg *CnMsgOp) Serialize() []byte {
 	return (*(*[SizeofCnMsgOp]byte)(unsafe.Pointer(msg)))[:]
 }
 
+func (msg *CnMsgOp) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofCnMsgOp], msg.Serialize())
+	return SizeofCnMsgOp
+}
+
 func DeserializeCnMsgOp(b []byte) *CnMsgOp {
 	return (*CnMsgOp)(unsafe.Pointer(&b[0:SizeofCnMsgOp][0]))
 }
@@ -188,6 +195,11 @@ func NewIfInfomsg(family int) *IfInfomsg {
 
 func DeserializeIfInfomsg(b []byte) *IfInfomsg {
 	return (*IfInfomsg)(unsafe.Pointer(&b[0:unix.SizeofIfInfomsg][0]))
+}
+
+func (msg *IfInfomsg) SerializeTo(buf []byte) int {
+	copy(buf[0:unix.SizeofIfInfomsg], msg.Serialize())
+	return unix.SizeofIfInfomsg
 }
 
 func (msg *IfInfomsg) Serialize() []byte {
@@ -391,6 +403,11 @@ func (a *Uint32Attribute) Len() int {
 	return 8
 }
 
+func (a *Uint32Attribute) SerializeTo(buf []byte) int {
+	copy(buf[0:8], a.Serialize())
+	return 8
+}
+
 // Extend RtAttr to handle data and children
 type RtAttr struct {
 	unix.RtAttr
@@ -428,26 +445,42 @@ func (a *RtAttr) AddChild(attr NetlinkRequestData) {
 	a.children = append(a.children, attr)
 }
 
+func (a *RtAttr) AddChilds(attrs ...NetlinkRequestData) {
+	a.children = append(a.children, attrs...)
+}
+
+func (a *RtAttr) ReserveMoreChildren(n int) {
+	newChildren := make([]NetlinkRequestData, 0, n+len(a.children))
+	if len(a.children) > 0 {
+		newChildren = append(newChildren, a.children...)
+	}
+	a.children = newChildren
+}
+
+func (a *RtAttr) ReserveMoreChildrenWithBuffer(buf []NetlinkRequestData) {
+	newChildren := buf[0:0]
+	if len(a.children) > 0 {
+		newChildren = append(newChildren, a.children...)
+	}
+	a.children = newChildren
+}
+
 func (a *RtAttr) Len() int {
 	if len(a.children) == 0 {
 		return (unix.SizeofRtAttr + len(a.Data))
 	}
 
-	l := 0
+	l := unix.SizeofRtAttr
 	for _, child := range a.children {
 		l += rtaAlignOf(child.Len())
 	}
-	l += unix.SizeofRtAttr
 	return rtaAlignOf(l + len(a.Data))
 }
 
-// Serialize the RtAttr into a byte array
-// This can't just unsafe.cast because it must iterate through children.
-func (a *RtAttr) Serialize() []byte {
+func (a *RtAttr) SerializeTo(buf []byte) int {
 	native := NativeEndian()
 
 	length := a.Len()
-	buf := make([]byte, rtaAlignOf(length))
 
 	next := 4
 	if a.Data != nil {
@@ -456,9 +489,8 @@ func (a *RtAttr) Serialize() []byte {
 	}
 	if len(a.children) > 0 {
 		for _, child := range a.children {
-			childBuf := child.Serialize()
-			copy(buf[next:], childBuf)
-			next += rtaAlignOf(len(childBuf))
+			size := child.SerializeTo(buf[next:])
+			next += rtaAlignOf(size)
 		}
 	}
 
@@ -466,6 +498,17 @@ func (a *RtAttr) Serialize() []byte {
 		native.PutUint16(buf[0:2], l)
 	}
 	native.PutUint16(buf[2:4], a.Type)
+	// Return aligned size so parent advances correctly; kernel uses NLA_ALIGN(nla_len).
+	return rtaAlignOf(length)
+}
+
+// Serialize the RtAttr into a byte array
+// This can't just unsafe.cast because it must iterate through children.
+func (a *RtAttr) Serialize() []byte {
+	length := a.Len()
+	// Allocate aligned size so output includes padding; kernel advances by NLA_ALIGN(nla_len).
+	buf := make([]byte, rtaAlignOf(length))
+	a.SerializeTo(buf)
 	return buf
 }
 
@@ -579,6 +622,14 @@ func (req *NetlinkRequest) ExecuteIter(sockType int, resType uint16, f func(msg 
 
 	if err := s.Send(req.Serialize()); err != nil {
 		return err
+	}
+
+	if f == nil {
+		if req.Flags&unix.NLM_F_ACK != 0 {
+			_, _, err := s.Receive()
+			return err
+		}
+		return nil
 	}
 
 	pid, err := s.GetPid()
@@ -888,6 +939,14 @@ func (s *NetlinkSocket) Send(serializedReq []byte) error {
 	return nil
 }
 
+var (
+	receiveBufferPool = sync.Pool{
+		New: func() any {
+			return make([]byte, RECEIVE_BUFFER_SIZE)
+		},
+	}
+)
+
 func (s *NetlinkSocket) Receive() ([]syscall.NetlinkMessage, *unix.SockaddrNetlink, error) {
 	rawConn, err := s.file.SyscallConn()
 	if err != nil {
@@ -896,11 +955,12 @@ func (s *NetlinkSocket) Receive() ([]syscall.NetlinkMessage, *unix.SockaddrNetli
 	var (
 		deadline time.Time
 		fromAddr *unix.SockaddrNetlink
-		rb       [RECEIVE_BUFFER_SIZE]byte
+		rb       []byte = receiveBufferPool.Get().([]byte)
 		nr       int
 		from     unix.Sockaddr
 		innerErr error
 	)
+	defer receiveBufferPool.Put(rb)
 	receiveTimeout := atomic.LoadInt64(&s.receiveTimeout)
 	if receiveTimeout != 0 {
 		deadline = time.Now().Add(time.Duration(receiveTimeout))

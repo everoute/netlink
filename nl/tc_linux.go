@@ -167,6 +167,11 @@ func (x *TcMsg) Serialize() []byte {
 	return (*(*[SizeofTcMsg]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcMsg) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcMsg], msg.Serialize())
+	return SizeofTcMsg
+}
+
 type Tcf struct {
 	Install  uint64
 	LastUse  uint64
@@ -202,6 +207,11 @@ func (x *TcActionMsg) Serialize() []byte {
 	return (*(*[SizeofTcActionMsg]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcActionMsg) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcActionMsg], msg.Serialize())
+	return SizeofTcActionMsg
+}
+
 const (
 	TC_PRIO_MAX = 15
 )
@@ -226,6 +236,11 @@ func DeserializeTcPrioMap(b []byte) *TcPrioMap {
 
 func (x *TcPrioMap) Serialize() []byte {
 	return (*(*[SizeofTcPrioMap]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcPrioMap) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcPrioMap], msg.Serialize())
+	return SizeofTcPrioMap
 }
 
 const (
@@ -268,6 +283,11 @@ func DeserializeTcRateSpec(b []byte) *TcRateSpec {
 
 func (x *TcRateSpec) Serialize() []byte {
 	return (*(*[SizeofTcRateSpec]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcRateSpec) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcRateSpec], msg.Serialize())
+	return SizeofTcRateSpec
 }
 
 /**
@@ -317,6 +337,11 @@ func (x *TcNetemQopt) Serialize() []byte {
 	return (*(*[SizeofTcNetemQopt]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcNetemQopt) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcNetemQopt], msg.Serialize())
+	return SizeofTcNetemQopt
+}
+
 // struct tc_netem_corr {
 //  __u32   delay_corr; /* delay correlation */
 //  __u32   loss_corr;  /* packet loss correlation */
@@ -341,6 +366,11 @@ func (x *TcNetemCorr) Serialize() []byte {
 	return (*(*[SizeofTcNetemCorr]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcNetemCorr) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcNetemCorr], msg.Serialize())
+	return SizeofTcNetemCorr
+}
+
 // struct tc_netem_reorder {
 //  __u32   probability;
 //  __u32   correlation;
@@ -361,6 +391,11 @@ func DeserializeTcNetemReorder(b []byte) *TcNetemReorder {
 
 func (x *TcNetemReorder) Serialize() []byte {
 	return (*(*[SizeofTcNetemReorder]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcNetemReorder) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcNetemReorder], msg.Serialize())
+	return SizeofTcNetemReorder
 }
 
 // struct tc_netem_corrupt {
@@ -394,7 +429,7 @@ type TcNetemRate struct {
 }
 
 func (msg *TcNetemRate) Len() int {
-	return SizeofTcRateSpec
+	return SizeOfTcNetemRate
 }
 
 func DeserializeTcNetemRate(b []byte) *TcNetemRate {
@@ -403,6 +438,11 @@ func DeserializeTcNetemRate(b []byte) *TcNetemRate {
 
 func (msg *TcNetemRate) Serialize() []byte {
 	return (*(*[SizeOfTcNetemRate]byte)(unsafe.Pointer(msg)))[:]
+}
+
+func (msg *TcNetemRate) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeOfTcNetemRate], msg.Serialize())
+	return SizeOfTcNetemRate
 }
 
 // struct tc_tbf_qopt {
@@ -431,6 +471,11 @@ func DeserializeTcTbfQopt(b []byte) *TcTbfQopt {
 
 func (x *TcTbfQopt) Serialize() []byte {
 	return (*(*[SizeofTcTbfQopt]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcTbfQopt) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcTbfQopt], msg.Serialize())
+	return SizeofTcTbfQopt
 }
 
 const (
@@ -477,6 +522,11 @@ func (x *TcHtbCopt) Serialize() []byte {
 	return (*(*[SizeofTcHtbCopt]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcHtbCopt) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcHtbCopt], msg.Serialize())
+	return SizeofTcHtbCopt
+}
+
 type TcHtbGlob struct {
 	Version      uint32
 	Rate2Quantum uint32
@@ -495,6 +545,11 @@ func DeserializeTcHtbGlob(b []byte) *TcHtbGlob {
 
 func (x *TcHtbGlob) Serialize() []byte {
 	return (*(*[SizeofTcHtbGlob]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcHtbGlob) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcHtbGlob], msg.Serialize())
+	return SizeofTcHtbGlob
 }
 
 // HFSC
@@ -672,6 +727,11 @@ func (x *TcGen) Serialize() []byte {
 	return (*(*[SizeofTcGen]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcGen) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcGen], msg.Serialize())
+	return SizeofTcGen
+}
+
 // #define tc_gen \
 //   __u32                 index; \
 //   __u32                 capab; \
@@ -763,6 +823,11 @@ func (x *TcConnmark) Serialize() []byte {
 	return (*(*[SizeofTcConnmark]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcConnmark) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcConnmark], msg.Serialize())
+	return SizeofTcConnmark
+}
+
 const (
 	TCA_CSUM_UNSPEC = iota
 	TCA_CSUM_PARMS
@@ -791,6 +856,11 @@ func DeserializeTcCsum(b []byte) *TcCsum {
 
 func (x *TcCsum) Serialize() []byte {
 	return (*(*[SizeofTcCsum]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcCsum) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcCsum], msg.Serialize())
+	return SizeofTcCsum
 }
 
 const (
@@ -828,6 +898,11 @@ func (x *TcMirred) Serialize() []byte {
 	return (*(*[SizeofTcMirred]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcMirred) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcMirred], msg.Serialize())
+	return SizeofTcMirred
+}
+
 const (
 	TCA_VLAN_UNSPEC = iota
 	TCA_VLAN_TM
@@ -861,6 +936,11 @@ func DeserializeTcVlan(b []byte) *TcVlan {
 
 func (x *TcVlan) Serialize() []byte {
 	return (*(*[SizeofTcVlan]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcVlan) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcVlan], msg.Serialize())
+	return SizeofTcVlan
 }
 
 const (
@@ -898,6 +978,11 @@ func (x *TcTunnelKey) Serialize() []byte {
 	return (*(*[SizeofTcTunnelKey]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcTunnelKey) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcTunnelKey], msg.Serialize())
+	return SizeofTcTunnelKey
+}
+
 const (
 	TCA_SKBEDIT_UNSPEC = iota
 	TCA_SKBEDIT_TM
@@ -925,6 +1010,11 @@ func DeserializeSkbEdit(b []byte) *TcSkbEdit {
 
 func (x *TcSkbEdit) Serialize() []byte {
 	return (*(*[SizeofTcSkbEdit]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcSkbEdit) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcSkbEdit], msg.Serialize())
+	return SizeofTcSkbEdit
 }
 
 // struct tc_police {
@@ -963,6 +1053,11 @@ func DeserializeTcPolice(b []byte) *TcPolice {
 
 func (x *TcPolice) Serialize() []byte {
 	return (*(*[SizeofTcPolice]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcPolice) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcPolice], msg.Serialize())
+	return SizeofTcPolice
 }
 
 const (
@@ -1164,6 +1259,11 @@ func (x *TcSfqQopt) Serialize() []byte {
 	return (*(*[SizeofTcSfqQopt]byte)(unsafe.Pointer(x)))[:]
 }
 
+func (msg *TcSfqQopt) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcSfqQopt], msg.Serialize())
+	return SizeofTcSfqQopt
+}
+
 //	struct tc_sfqred_stats {
 //		__u32           prob_drop;      /* Early drops, below max threshold */
 //		__u32           forced_drop;	/* Early drops, after max threshold */
@@ -1191,6 +1291,11 @@ func DeserializeTcSfqRedStats(b []byte) *TcSfqRedStats {
 
 func (x *TcSfqRedStats) Serialize() []byte {
 	return (*(*[SizeofTcSfqRedStats]byte)(unsafe.Pointer(x)))[:]
+}
+
+func (msg *TcSfqRedStats) SerializeTo(buf []byte) int {
+	copy(buf[0:SizeofTcSfqRedStats], msg.Serialize())
+	return SizeofTcSfqRedStats
 }
 
 //	struct tc_sfq_qopt_v1 {
