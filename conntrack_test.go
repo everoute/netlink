@@ -1120,8 +1120,10 @@ func TestConntrackUpdateV4(t *testing.T) {
 		},
 		// No point checking equivalence of timeout, but value must
 		// be reasonable to allow for a potentially slow subsequent read.
-		TimeOut: 100,
-		Mark:    12,
+		TimeOut:    100,
+		HasTimeout: true,
+		Mark:       12,
+		HasMark:    true,
 		ProtoInfo: &ProtoInfoTCP{
 			State: nl.TCP_CONNTRACK_SYN_SENT2,
 		},
@@ -1253,8 +1255,10 @@ func TestConntrackUpdateV6(t *testing.T) {
 		},
 		// No point checking equivalence of timeout, but value must
 		// be reasonable to allow for a potentially slow subsequent read.
-		TimeOut: 100,
-		Mark:    12,
+		TimeOut:    100,
+		HasTimeout: true,
+		Mark:       12,
+		HasMark:    true,
 		ProtoInfo: &ProtoInfoTCP{
 			State: nl.TCP_CONNTRACK_SYN_SENT2,
 		},
@@ -1384,8 +1388,10 @@ func TestConntrackCreateV4(t *testing.T) {
 		},
 		// No point checking equivalence of timeout, but value must
 		// be reasonable to allow for a potentially slow subsequent read.
-		TimeOut: 100,
-		Mark:    12,
+		TimeOut:    100,
+		HasTimeout: true,
+		Mark:       12,
+		HasMark:    true,
 		ProtoInfo: &ProtoInfoTCP{
 			State: nl.TCP_CONNTRACK_ESTABLISHED,
 		},
@@ -1479,8 +1485,10 @@ func TestConntrackCreateV6(t *testing.T) {
 		},
 		// No point checking equivalence of timeout, but value must
 		// be reasonable to allow for a potentially slow subsequent read.
-		TimeOut: 100,
-		Mark:    12,
+		TimeOut:    100,
+		HasTimeout: true,
+		Mark:       12,
+		HasMark:    true,
 		ProtoInfo: &ProtoInfoTCP{
 			State: nl.TCP_CONNTRACK_ESTABLISHED,
 		},
@@ -1572,10 +1580,12 @@ func TestConntrackLabels(t *testing.T) {
 		},
 		// No point checking equivalence of timeout, but value must
 		// be reasonable to allow for a potentially slow subsequent read.
-		TimeOut:   100,
-		Mark:      12,
-		Labels:    [16]byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
-		HasLabels: true,
+		TimeOut:    100,
+		HasTimeout: true,
+		Mark:       12,
+		HasMark:    true,
+		Labels:     [16]byte{0, 0, 0, 0, 3, 4, 61, 141, 207, 170, 2, 0, 0, 0, 0, 0},
+		HasLabels:  true,
 		ProtoInfo: &ProtoInfoTCP{
 			State: nl.TCP_CONNTRACK_SYN_SENT2,
 		},
@@ -1686,9 +1696,11 @@ func TestConntrackFlowToNlData(t *testing.T) {
 			DstPort:  48385,
 			Protocol: unix.IPPROTO_TCP,
 		},
-		Mark:    5,
-		Zone:    0,
-		TimeOut: 10,
+		Mark:       5,
+		HasMark:    true,
+		Zone:       0,
+		TimeOut:    10,
+		HasTimeout: true,
 	}
 	flowV6 := ConntrackFlow{
 		FamilyType: FAMILY_V6,
@@ -1706,9 +1718,11 @@ func TestConntrackFlowToNlData(t *testing.T) {
 			DstPort:  48385,
 			Protocol: unix.IPPROTO_TCP,
 		},
-		Mark:    5,
-		Zone:    0,
-		TimeOut: 10,
+		Mark:       5,
+		HasMark:    true,
+		Zone:       0,
+		TimeOut:    10,
+		HasTimeout: true,
 	}
 
 	attrsV4, err := flowV4.toNlData(nl.NewRtAttr, make([]nl.NetlinkRequestData, 32))
@@ -1936,9 +1950,11 @@ func TestConntrackFlowToNlDataWithProtoInfo(t *testing.T) {
 			DstPort:  48385,
 			Protocol: unix.IPPROTO_TCP,
 		},
-		Mark:    5,
-		Zone:    0,
-		TimeOut: 10,
+		Mark:       5,
+		HasMark:    true,
+		Zone:       0,
+		TimeOut:    10,
+		HasTimeout: true,
 		ProtoInfo: &ProtoInfoTCP{
 			State:          nl.TCP_CONNTRACK_ESTABLISHED,
 			WsacleOriginal:  7,
@@ -2009,8 +2025,9 @@ func TestExecuteConntrackRequest(t *testing.T) {
 			DstPort:  9999,
 			Protocol: unix.IPPROTO_UDP,
 		},
-		Zone:    0,
-		TimeOut: 60,
+		Zone:       0,
+		TimeOut:    60,
+		HasTimeout: true,
 	}
 
 	req := h.NewConntrackCreateRequest(ConntrackTable, FAMILY_V4, true)
@@ -2049,6 +2066,10 @@ func checkFlowsEqual(t *testing.T, f1, f2 *ConntrackFlow) {
 		t.Logf("Conntrack flow Marks differ. Tuple1: %d, Tuple2: %d.\n", f1.Mark, f2.Mark)
 		t.Fail()
 	}
+	if f1.HasMark != f2.HasMark {
+		t.Logf("Conntrack flow HasMark differ. Tuple1: %v, Tuple2: %v.\n", f1.HasMark, f2.HasMark)
+		t.Fail()
+	}
 	if !tuplesEqual(f1.Forward, f2.Forward) {
 		t.Logf("Forward tuples mismatch. Tuple1 forward flow: %+v, Tuple2 forward flow: %+v.\n", f1.Forward, f2.Forward)
 		t.Fail()
@@ -2058,8 +2079,16 @@ func checkFlowsEqual(t *testing.T, f1, f2 *ConntrackFlow) {
 		t.Fail()
 	}
 
+	if f1.HasLabels != f2.HasLabels {
+		t.Logf("Conntrack flow HasLabels differ. Tuple1: %v, Tuple2: %v.\n", f1.HasLabels, f2.HasLabels)
+		t.Fail()
+	}
 	if !bytes.Equal(f1.Labels[:], f2.Labels[:]) {
 		t.Logf("Conntrack flow Labels differ. Tuple1: %+v, Tuple2: %+v.\n", f1.Labels, f2.Labels)
+		t.Fail()
+	}
+	if f1.HasLabelsMask && !bytes.Equal(f1.LabelsMask[:], f2.LabelsMask[:]) {
+		t.Logf("Conntrack flow LabelsMask differ. Tuple1: %+v, Tuple2: %+v.\n", f1.LabelsMask, f2.LabelsMask)
 		t.Fail()
 	}
 }

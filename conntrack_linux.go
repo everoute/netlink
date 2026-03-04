@@ -440,11 +440,14 @@ type ConntrackFlow struct {
 	Forward       IPTuple
 	Reverse       IPTuple
 	Mark          uint32
+	HasMark       bool
 	Zone          uint16
 	TimeStart     uint64
 	TimeStop      uint64
 	TimeOut       uint32
+	HasTimeout    bool
 	Status        uint32
+	HasStatus     bool
 	Use           uint32
 	ID            uint32
 	Labels        [16]byte
@@ -555,25 +558,34 @@ func (s *ConntrackFlow) toNlData(newRtAttr func(attrType int, data []byte) *nl.R
 	buf = buf[len(reverseFlowAttrs):]
 	ctTupleReply.AddChilds(reverseFlowAttrs...)
 
-	ctMark := newRtAttr(nl.CTA_MARK, nl.BEUint32Attr(s.Mark))
-	ctTimeout := newRtAttr(nl.CTA_TIMEOUT, nl.BEUint32Attr(s.TimeOut))
-
-	// Zone is required for matching conntrack entries in the kernel
-	// The kernel uses zone when looking up conntrack entries: nf_conntrack_find_get(net, &zone, &otuple)
-	ctZone := newRtAttr(nl.CTA_ZONE, nl.BEUint16Attr(s.Zone))
-	ctStatus := newRtAttr(nl.CTA_STATUS, nl.BEUint32Attr(s.Status))
-
 	var payload []nl.NetlinkRequestData
 	if buf == nil {
 		payload = make([]nl.NetlinkRequestData, 0, 9)
 	} else {
 		payload = buf[0:0]
 	}
-
 	payload = append(payload,
 		ctTupleOrig, ctTupleReply,
-		ctMark, ctTimeout, ctZone, ctStatus,
 	)
+
+	if s.HasMark {
+		ctMark := newRtAttr(nl.CTA_MARK, nl.BEUint32Attr(s.Mark))
+		payload = append(payload, ctMark)
+	}
+	if s.HasTimeout {
+		ctTimeout := newRtAttr(nl.CTA_TIMEOUT, nl.BEUint32Attr(s.TimeOut))
+		payload = append(payload, ctTimeout)
+	}
+
+	// Zone is required for matching conntrack entries in the kernel
+	// The kernel uses zone when looking up conntrack entries: nf_conntrack_find_get(net, &zone, &otuple)
+	ctZone := newRtAttr(nl.CTA_ZONE, nl.BEUint16Attr(s.Zone))
+	payload = append(payload, ctZone)
+
+	if s.HasStatus {
+		ctStatus := newRtAttr(nl.CTA_STATUS, nl.BEUint32Attr(s.Status))
+		payload = append(payload, ctStatus)
+	}
 
 	// Labels: HasLabels => update conntrack labels; else => do not send.
 	if s.HasLabels {
@@ -932,6 +944,7 @@ func parseRawData(data []byte, allocator func() *ConntrackFlow) *ConntrackFlow {
 			switch t {
 			case nl.CTA_MARK:
 				s.Mark = parseConnectionMark(data, offset)
+				s.HasMark = true
 			case nl.CTA_ZONE:
 				s.Zone = parseConnectionZone(data, offset)
 			case nl.CTA_LABELS:
@@ -942,8 +955,10 @@ func parseRawData(data []byte, allocator func() *ConntrackFlow) *ConntrackFlow {
 				s.HasLabelsMask = true
 			case nl.CTA_TIMEOUT:
 				s.TimeOut = parseTimeOut(data, offset)
+				s.HasTimeout = true
 			case nl.CTA_STATUS:
 				s.Status = parseBERaw32(data, offset)
+				s.HasStatus = true
 			case nl.CTA_USE:
 				s.Use = parseBERaw32(data, offset)
 			case nl.CTA_ID:
