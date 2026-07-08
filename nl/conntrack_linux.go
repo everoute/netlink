@@ -130,6 +130,7 @@ const (
 	CTA_COUNTERS_REPLY = 10
 	CTA_USE            = 11
 	CTA_ID             = 12
+	CTA_TUPLE_MASTER   = 14
 	CTA_ZONE           = 18
 	CTA_TIMESTAMP      = 20
 	CTA_LABELS         = 22

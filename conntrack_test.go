@@ -1072,6 +1072,60 @@ func TestParseRawData(t *testing.T) {
 	}
 }
 
+func TestParseRawDataMasterTuple(t *testing.T) {
+	buildTuple := func(attrType int, family uint8, tuple IPTuple) []byte {
+		t.Helper()
+		attr := nl.NewRtAttr(unix.NLA_F_NESTED|attrType, nil)
+		tupleAttrs, err := tuple.toNlData(family, nl.NewRtAttr, make([]nl.NetlinkRequestData, 8))
+		if err != nil {
+			t.Fatalf("failed to build tuple attr: %v", err)
+		}
+		attr.AddChilds(tupleAttrs...)
+		return attr.Serialize()
+	}
+
+	forward := IPTuple{
+		SrcIP:    net.IP{10, 0, 0, 1},
+		DstIP:    net.IP{10, 0, 0, 2},
+		SrcPort:  12345,
+		DstPort:  21,
+		Protocol: unix.IPPROTO_TCP,
+	}
+	reverse := IPTuple{
+		SrcIP:    net.IP{10, 0, 0, 2},
+		DstIP:    net.IP{10, 0, 0, 1},
+		SrcPort:  21,
+		DstPort:  12345,
+		Protocol: unix.IPPROTO_TCP,
+	}
+	master := IPTuple{
+		SrcIP:    net.IP{192, 0, 2, 10},
+		DstIP:    net.IP{192, 0, 2, 20},
+		SrcPort:  40000,
+		DstPort:  21,
+		Protocol: unix.IPPROTO_TCP,
+	}
+
+	rawData := []byte{FAMILY_V4, 0, 0, 0}
+	rawData = append(rawData, buildTuple(nl.CTA_TUPLE_ORIG, FAMILY_V4, forward)...)
+	rawData = append(rawData, buildTuple(nl.CTA_TUPLE_REPLY, FAMILY_V4, reverse)...)
+	rawData = append(rawData, buildTuple(nl.CTA_TUPLE_MASTER, FAMILY_V4, master)...)
+
+	flow := parseRawData(rawData, nil)
+	if !flow.HasMaster {
+		t.Fatal("expected parsed flow to have a master tuple")
+	}
+	if !tuplesEqual(flow.Master, master) {
+		t.Fatalf("master tuple mismatch: got %+v, want %+v", flow.Master, master)
+	}
+	if !tuplesEqual(flow.Forward, forward) {
+		t.Fatalf("forward tuple mismatch: got %+v, want %+v", flow.Forward, forward)
+	}
+	if !tuplesEqual(flow.Reverse, reverse) {
+		t.Fatalf("reverse tuple mismatch: got %+v, want %+v", flow.Reverse, reverse)
+	}
+}
+
 // TestConntrackUpdateV4 first tries to update a non-existant IPv4 conntrack and asserts that an error occurs.
 // It then creates a conntrack entry using and adjacent API method (ConntrackCreate), and attempts to update the value of the created conntrack.
 func TestConntrackUpdateV4(t *testing.T) {
@@ -1957,10 +2011,10 @@ func TestConntrackFlowToNlDataWithProtoInfo(t *testing.T) {
 		HasTimeout: true,
 		ProtoInfo: &ProtoInfoTCP{
 			State:          nl.TCP_CONNTRACK_ESTABLISHED,
-			WsacleOriginal:  7,
-			WsacleReply:     7,
-			FlagsOriginal:   0x18,
-			FlagsReply:      0x18,
+			WsacleOriginal: 7,
+			WsacleReply:    7,
+			FlagsOriginal:  0x18,
+			FlagsReply:     0x18,
 		},
 	}
 	attrs, err := flow.toNlData(nl.NewRtAttr, make([]nl.NetlinkRequestData, 32))
@@ -2076,6 +2130,14 @@ func checkFlowsEqual(t *testing.T, f1, f2 *ConntrackFlow) {
 	}
 	if !tuplesEqual(f1.Reverse, f2.Reverse) {
 		t.Logf("Reverse tuples mismatch. Tuple1 reverse flow: %+v, Tuple2 reverse flow: %+v.\n", f1.Reverse, f2.Reverse)
+		t.Fail()
+	}
+	if f1.HasMaster != f2.HasMaster {
+		t.Logf("Conntrack flow HasMaster differ. Tuple1: %v, Tuple2: %v.\n", f1.HasMaster, f2.HasMaster)
+		t.Fail()
+	}
+	if f1.HasMaster && !tuplesEqual(f1.Master, f2.Master) {
+		t.Logf("Master tuples mismatch. Tuple1 master flow: %+v, Tuple2 master flow: %+v.\n", f1.Master, f2.Master)
 		t.Fail()
 	}
 
