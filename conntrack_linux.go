@@ -439,6 +439,8 @@ type ConntrackFlow struct {
 	FamilyType    uint8
 	Forward       IPTuple
 	Reverse       IPTuple
+	Master        IPTuple
+	HasMaster     bool
 	Mark          uint32
 	HasMark       bool
 	Zone          uint16
@@ -476,6 +478,15 @@ func (s *ConntrackFlow) String() string {
 			nl.L4ProtoMap[s.Forward.Protocol], s.Forward.Protocol,
 			s.Forward.SrcIP.String(), s.Forward.DstIP.String(), s.Forward.SrcPort, s.Forward.DstPort, s.Forward.Packets, s.Forward.Bytes,
 			s.Reverse.SrcIP.String(), s.Reverse.DstIP.String(), s.Reverse.SrcPort, s.Reverse.DstPort, s.Reverse.Packets, s.Reverse.Bytes)
+	}
+	if s.HasMaster {
+		if s.Master.Protocol == unix.IPPROTO_ICMP || s.Master.Protocol == unix.IPPROTO_ICMPV6 {
+			out += fmt.Sprintf(" master-src=%s master-dst=%s master-id=%d master-type=%d master-code=%d",
+				s.Master.SrcIP.String(), s.Master.DstIP.String(), s.Master.ICMPID, s.Master.ICMPType, s.Master.ICMPCode)
+		} else {
+			out += fmt.Sprintf(" master-src=%s master-dst=%s master-sport=%d master-dport=%d",
+				s.Master.SrcIP.String(), s.Master.DstIP.String(), s.Master.SrcPort, s.Master.DstPort)
+		}
 	}
 	out += fmt.Sprintf(" mark=0x%x", s.Mark)
 	if s.HasLabels {
@@ -715,6 +726,25 @@ func parseNfAttrTL(data []byte, offset *int) (isNested bool, attrType, len uint1
 	return isNested, attrType, len
 }
 
+// parseTuple reads a nested CTA_TUPLE_* attribute and consumes the whole tuple.
+func parseTuple(data []byte, offset *int, attrLen uint16, tpl *IPTuple) bool {
+	start := *offset
+	parsed := false
+	if attrLen >= nl.SizeofNfattr {
+		if nested, t, l := parseNfAttrTL(data, offset); nested && t == nl.CTA_TUPLE_IP {
+			parseIpTuple(data, offset, tpl)
+			parsed = true
+		} else {
+			skipNfAttrValue(data, offset, l)
+		}
+	}
+	attrEnd := start + int((attrLen+nl.NLA_ALIGNTO-1)&^(nl.NLA_ALIGNTO-1))
+	if *offset < attrEnd {
+		*offset = attrEnd
+	}
+	return parsed
+}
+
 // skipNfAttrValue seeks `r` past attr of length `len`.
 // Maintains buffer alignment.
 // Returns length of the seek performed.
@@ -892,6 +922,7 @@ func parseRawData(data []byte, allocator func() *ConntrackFlow) *ConntrackFlow {
 	var s *ConntrackFlow
 	if allocator != nil {
 		s = allocator()
+		*s = ConntrackFlow{}
 	} else {
 		s = &ConntrackFlow{}
 	}
@@ -919,16 +950,11 @@ func parseRawData(data []byte, allocator func() *ConntrackFlow) *ConntrackFlow {
 		if nested, t, l := parseNfAttrTL(data, offset); nested {
 			switch t {
 			case nl.CTA_TUPLE_ORIG:
-				if nested, t, l = parseNfAttrTL(data, offset); nested && t == nl.CTA_TUPLE_IP {
-					parseIpTuple(data, offset, &s.Forward)
-				}
+				parseTuple(data, offset, l, &s.Forward)
 			case nl.CTA_TUPLE_REPLY:
-				if nested, t, l = parseNfAttrTL(data, offset); nested && t == nl.CTA_TUPLE_IP {
-					parseIpTuple(data, offset, &s.Reverse)
-				} else {
-					// Header not recognized skip it
-					skipNfAttrValue(data, offset, l)
-				}
+				parseTuple(data, offset, l, &s.Reverse)
+			case nl.CTA_TUPLE_MASTER:
+				s.HasMaster = parseTuple(data, offset, l, &s.Master)
 			case nl.CTA_COUNTERS_ORIG:
 				s.Forward.Bytes, s.Forward.Packets = parseByteAndPacketCounters(data, offset)
 			case nl.CTA_COUNTERS_REPLY:
