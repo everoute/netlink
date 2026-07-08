@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"syscall"
 	"time"
 
 	"github.com/vishvananda/netlink/nl"
+	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
 )
 
@@ -88,6 +90,47 @@ func ConntrackDeleteFilters(table ConntrackTableType, family InetFamily, filters
 
 func ConntrackTableListStream(table ConntrackTableType, family InetFamily, handle chan *ConntrackFlow, allocator func() *ConntrackFlow) error {
 	return pkgHandle.ConntrackTableListStream(table, family, handle, allocator)
+}
+
+// ConntrackEvent is sent by ConntrackSubscribe when a conntrack entry changes.
+type ConntrackEvent struct {
+	Type  uint16
+	Group uint32
+	Flow  *ConntrackFlow
+}
+
+// ConntrackSubscribe takes a chan down which notifications will be sent
+// when conntrack entries are created, updated, or destroyed.
+// Close the 'done' chan to stop subscription.
+func ConntrackSubscribe(ch chan<- ConntrackEvent, done <-chan struct{}) error {
+	return conntrackSubscribeAt(netns.None(), netns.None(), ch, done, nil, 0, nil, false)
+}
+
+// ConntrackSubscribeAt works like ConntrackSubscribe plus it allows the caller
+// to choose the network namespace in which to subscribe (ns).
+func ConntrackSubscribeAt(ns netns.NsHandle, ch chan<- ConntrackEvent, done <-chan struct{}) error {
+	return conntrackSubscribeAt(ns, netns.None(), ch, done, nil, 0, nil, false)
+}
+
+// ConntrackSubscribeOptions contains a set of options to use with
+// ConntrackSubscribeWithOptions.
+type ConntrackSubscribeOptions struct {
+	Namespace              *netns.NsHandle
+	ErrorCallback          func(error)
+	ReceiveBufferSize      int
+	ReceiveBufferForceSize bool
+	ReceiveTimeout         *unix.Timeval
+}
+
+// ConntrackSubscribeWithOptions works like ConntrackSubscribe but enables
+// additional options to modify the behavior.
+func ConntrackSubscribeWithOptions(ch chan<- ConntrackEvent, done <-chan struct{}, options ConntrackSubscribeOptions) error {
+	if options.Namespace == nil {
+		none := netns.None()
+		options.Namespace = &none
+	}
+	return conntrackSubscribeAt(*options.Namespace, netns.None(), ch, done, options.ErrorCallback,
+		options.ReceiveBufferSize, options.ReceiveTimeout, options.ReceiveBufferForceSize)
 }
 
 // ConntrackTableList returns the flow list of a table of a specific family using the netlink handle passed.
@@ -254,6 +297,86 @@ func (h *Handle) ConntrackTableListStream(table ConntrackTableType, family InetF
 	})
 
 	return err
+}
+
+func conntrackSubscribeAt(newNs, curNs netns.NsHandle, ch chan<- ConntrackEvent, done <-chan struct{}, cberr func(error),
+	rcvbuf int, rcvTimeout *unix.Timeval, rcvbufForce bool) error {
+	s, err := nl.SubscribeAt(newNs, curNs, unix.NETLINK_NETFILTER,
+		unix.NFNLGRP_CONNTRACK_NEW,
+		unix.NFNLGRP_CONNTRACK_UPDATE,
+		unix.NFNLGRP_CONNTRACK_DESTROY)
+	if err != nil {
+		return err
+	}
+	if rcvTimeout != nil {
+		if err := s.SetReceiveTimeout(rcvTimeout); err != nil {
+			return err
+		}
+	}
+	if rcvbuf != 0 {
+		if err := s.SetReceiveBufferSize(rcvbuf, rcvbufForce); err != nil {
+			return err
+		}
+	}
+	if done != nil {
+		go func() {
+			<-done
+			s.Close()
+		}()
+	}
+
+	go func() {
+		defer close(ch)
+		for {
+			msgs, from, err := s.Receive()
+			if err != nil {
+				if cberr != nil {
+					cberr(fmt.Errorf("Receive failed: %v", err))
+				}
+				return
+			}
+			if from.Pid != nl.PidKernel {
+				if cberr != nil {
+					cberr(fmt.Errorf("Wrong sender portid %d, expected %d", from.Pid, nl.PidKernel))
+				}
+				continue
+			}
+			for _, m := range msgs {
+				if m.Header.Type == unix.NLMSG_DONE {
+					continue
+				}
+				if m.Header.Type == unix.NLMSG_ERROR {
+					if len(m.Data) < 4 {
+						if cberr != nil {
+							cberr(fmt.Errorf("short error message"))
+						}
+						continue
+					}
+					nError := int32(native.Uint32(m.Data[0:4]))
+					if nError == 0 {
+						continue
+					}
+					if cberr != nil {
+						cberr(fmt.Errorf("error message: %v", syscall.Errno(-nError)))
+					}
+					continue
+				}
+				if len(m.Data) < nl.SizeofNfgenmsg {
+					if cberr != nil {
+						cberr(fmt.Errorf("short conntrack event"))
+					}
+					continue
+				}
+				ch <- ConntrackEvent{
+					Type:  m.Header.Type,
+					Group: from.Groups,
+					Flow:  parseRawData(m.Data, nil),
+				}
+			}
+		}
+	}()
+
+	return nil
 }
 
 func (h *Handle) newConntrackRequest(table ConntrackTableType, family InetFamily, operation, flags int) nl.NetlinkRequest {
