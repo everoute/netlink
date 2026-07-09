@@ -586,6 +586,8 @@ type ConntrackFlow struct {
 	HasLabels     bool
 	LabelsMask    [16]byte
 	HasLabelsMask bool
+	HelpName      string
+	HasHelpName   bool
 	ProtoInfo     ProtoInfo
 }
 
@@ -617,6 +619,9 @@ func (s *ConntrackFlow) String() string {
 			out += fmt.Sprintf(" master-src=%s master-dst=%s master-sport=%d master-dport=%d",
 				s.Master.SrcIP.String(), s.Master.DstIP.String(), s.Master.SrcPort, s.Master.DstPort)
 		}
+	}
+	if s.HasHelpName {
+		out += fmt.Sprintf(" helper=%s", s.HelpName)
 	}
 	out += fmt.Sprintf(" mark=0x%x", s.Mark)
 	if s.HasLabels {
@@ -1026,6 +1031,34 @@ func parseProtoInfo(data []byte, offset *int, attrLen uint16) (p ProtoInfo) {
 	return p
 }
 
+func parseNfString(data []byte, offset *int, len uint16) string {
+	value := data[*offset : *offset+int(len)]
+	*offset += int((len + nl.NLA_ALIGNTO - 1) & ^(nl.NLA_ALIGNTO - 1))
+	if i := bytes.IndexByte(value, 0); i >= 0 {
+		value = value[:i]
+	}
+	return string(value)
+}
+
+func parseHelp(data []byte, offset *int, attrLen uint16) (name string, hasName bool) {
+	bytesRead := 0
+	for bytesRead < int(attrLen) {
+		_, t, l := parseNfAttrTL(data, offset)
+		bytesRead += nl.SizeofNfattr
+
+		switch t {
+		case nl.CTA_HELP_NAME:
+			name = parseNfString(data, offset, l)
+			hasName = true
+			bytesRead += int((l + nl.NLA_ALIGNTO - 1) & ^(nl.NLA_ALIGNTO - 1))
+		default:
+			skipped := skipNfAttrValue(data, offset, l)
+			bytesRead += int(skipped)
+		}
+	}
+	return
+}
+
 func parseTimeOut(data []byte, offset *int) (ttimeout uint32) {
 	ttimeout = parseBERaw32(data, offset)
 	return
@@ -1093,6 +1126,8 @@ func parseRawData(data []byte, allocator func() *ConntrackFlow) *ConntrackFlow {
 				s.TimeStart, s.TimeStop = parseTimeStamp(data, offset, l)
 			case nl.CTA_PROTOINFO:
 				s.ProtoInfo = parseProtoInfo(data, offset, l)
+			case nl.CTA_HELP:
+				s.HelpName, s.HasHelpName = parseHelp(data, offset, l)
 			default:
 				skipNfAttrValue(data, offset, l)
 			}
