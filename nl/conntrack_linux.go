@@ -124,6 +124,7 @@ const (
 	CTA_TUPLE_REPLY    = 2
 	CTA_STATUS         = 3
 	CTA_PROTOINFO      = 4
+	CTA_HELP           = 5
 	CTA_TIMEOUT        = 7
 	CTA_MARK           = 8
 	CTA_COUNTERS_ORIG  = 9
@@ -228,6 +229,18 @@ const (
 	CTA_PROTOINFO_TCP_WSCALE_REPLY    = 3
 	CTA_PROTOINFO_TCP_FLAGS_ORIGINAL  = 4
 	CTA_PROTOINFO_TCP_FLAGS_REPLY     = 5
+)
+
+//	enum ctattr_help {
+//		CTA_HELP_UNSPEC,
+//		CTA_HELP_NAME,
+//		CTA_HELP_INFO,
+//		__CTA_HELP_MAX
+//	};
+//
+// #define CTA_HELP_MAX (__CTA_HELP_MAX - 1)
+const (
+	CTA_HELP_NAME = 1
 )
 
 //	enum ctattr_counters {

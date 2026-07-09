@@ -1126,6 +1126,22 @@ func TestParseRawDataMasterTuple(t *testing.T) {
 	}
 }
 
+func TestParseRawDataHelpName(t *testing.T) {
+	help := nl.NewRtAttr(unix.NLA_F_NESTED|nl.CTA_HELP, nil)
+	help.AddChild(nl.NewRtAttr(nl.CTA_HELP_NAME, nl.ZeroTerminated("ftp")))
+
+	rawData := []byte{FAMILY_V4, 0, 0, 0}
+	rawData = append(rawData, help.Serialize()...)
+
+	flow := parseRawData(rawData, nil)
+	if !flow.HasHelpName {
+		t.Fatal("expected parsed flow to have a helper name")
+	}
+	if flow.HelpName != "ftp" {
+		t.Fatalf("helper name mismatch: got %q, want %q", flow.HelpName, "ftp")
+	}
+}
+
 // TestConntrackUpdateV4 first tries to update a non-existant IPv4 conntrack and asserts that an error occurs.
 // It then creates a conntrack entry using and adjacent API method (ConntrackCreate), and attempts to update the value of the created conntrack.
 func TestConntrackUpdateV4(t *testing.T) {
@@ -2138,6 +2154,14 @@ func checkFlowsEqual(t *testing.T, f1, f2 *ConntrackFlow) {
 	}
 	if f1.HasMaster && !tuplesEqual(f1.Master, f2.Master) {
 		t.Logf("Master tuples mismatch. Tuple1 master flow: %+v, Tuple2 master flow: %+v.\n", f1.Master, f2.Master)
+		t.Fail()
+	}
+	if f1.HasHelpName != f2.HasHelpName {
+		t.Logf("Conntrack flow HasHelpName differ. Tuple1: %v, Tuple2: %v.\n", f1.HasHelpName, f2.HasHelpName)
+		t.Fail()
+	}
+	if f1.HelpName != f2.HelpName {
+		t.Logf("Conntrack flow HelpName differ. Tuple1: %q, Tuple2: %q.\n", f1.HelpName, f2.HelpName)
 		t.Fail()
 	}
 
