@@ -101,15 +101,16 @@ type ConntrackEvent struct {
 
 // ConntrackSubscribe takes a chan down which notifications will be sent
 // when conntrack entries are created, updated, or destroyed.
+// If groups is empty, it subscribes to NEW, UPDATE, and DESTROY events.
 // Close the 'done' chan to stop subscription.
-func ConntrackSubscribe(ch chan<- ConntrackEvent, done <-chan struct{}) error {
-	return conntrackSubscribeAt(netns.None(), netns.None(), ch, done, nil, 0, nil, false)
+func ConntrackSubscribe(ch chan<- ConntrackEvent, done <-chan struct{}, groups ...uint) error {
+	return conntrackSubscribeAt(netns.None(), netns.None(), ch, done, nil, 0, nil, false, groups...)
 }
 
 // ConntrackSubscribeAt works like ConntrackSubscribe plus it allows the caller
 // to choose the network namespace in which to subscribe (ns).
-func ConntrackSubscribeAt(ns netns.NsHandle, ch chan<- ConntrackEvent, done <-chan struct{}) error {
-	return conntrackSubscribeAt(ns, netns.None(), ch, done, nil, 0, nil, false)
+func ConntrackSubscribeAt(ns netns.NsHandle, ch chan<- ConntrackEvent, done <-chan struct{}, groups ...uint) error {
+	return conntrackSubscribeAt(ns, netns.None(), ch, done, nil, 0, nil, false, groups...)
 }
 
 // ConntrackSubscribeOptions contains a set of options to use with
@@ -117,20 +118,22 @@ func ConntrackSubscribeAt(ns netns.NsHandle, ch chan<- ConntrackEvent, done <-ch
 type ConntrackSubscribeOptions struct {
 	Namespace              *netns.NsHandle
 	ErrorCallback          func(error)
+	Groups                 []uint
 	ReceiveBufferSize      int
 	ReceiveBufferForceSize bool
 	ReceiveTimeout         *unix.Timeval
 }
 
 // ConntrackSubscribeWithOptions works like ConntrackSubscribe but enables
-// additional options to modify the behavior.
+// additional options to modify the behavior. If options.Groups is empty, it
+// subscribes to NEW, UPDATE, and DESTROY events.
 func ConntrackSubscribeWithOptions(ch chan<- ConntrackEvent, done <-chan struct{}, options ConntrackSubscribeOptions) error {
 	if options.Namespace == nil {
 		none := netns.None()
 		options.Namespace = &none
 	}
 	return conntrackSubscribeAt(*options.Namespace, netns.None(), ch, done, options.ErrorCallback,
-		options.ReceiveBufferSize, options.ReceiveTimeout, options.ReceiveBufferForceSize)
+		options.ReceiveBufferSize, options.ReceiveTimeout, options.ReceiveBufferForceSize, options.Groups...)
 }
 
 // ConntrackTableList returns the flow list of a table of a specific family using the netlink handle passed.
@@ -300,11 +303,15 @@ func (h *Handle) ConntrackTableListStream(table ConntrackTableType, family InetF
 }
 
 func conntrackSubscribeAt(newNs, curNs netns.NsHandle, ch chan<- ConntrackEvent, done <-chan struct{}, cberr func(error),
-	rcvbuf int, rcvTimeout *unix.Timeval, rcvbufForce bool) error {
-	s, err := nl.SubscribeAt(newNs, curNs, unix.NETLINK_NETFILTER,
-		unix.NFNLGRP_CONNTRACK_NEW,
-		unix.NFNLGRP_CONNTRACK_UPDATE,
-		unix.NFNLGRP_CONNTRACK_DESTROY)
+	rcvbuf int, rcvTimeout *unix.Timeval, rcvbufForce bool, groups ...uint) error {
+	if len(groups) == 0 {
+		groups = []uint{
+			unix.NFNLGRP_CONNTRACK_NEW,
+			unix.NFNLGRP_CONNTRACK_UPDATE,
+			unix.NFNLGRP_CONNTRACK_DESTROY,
+		}
+	}
+	s, err := nl.SubscribeAt(newNs, curNs, unix.NETLINK_NETFILTER, groups...)
 	if err != nil {
 		return err
 	}
